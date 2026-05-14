@@ -1,59 +1,80 @@
 (line_comment) @comment
 (block_comment) @comment
 
-(procedure_definition
+(procedure_def
   name: (identifier) @function)
 
-(test_definition
-  name: (identifier) @function)
-
-(eval_definition
-  name: (identifier) @function)
-
-(type_definition
+(type_def
   name: (identifier) @type)
 
-(generic_type
-  name: (identifier) @type)
-
-(parameter
+(param
   name: (identifier) @variable.parameter)
 
-(field_definition
+(type_field
   name: (identifier) @property)
 
-(output_placeholder
+(type_ref
+  name: (identifier) @type)
+
+(type_apply
+  name: (identifier) @type)
+
+(validation_block
+  kw: (validation_keyword) @keyword
+  procedure: (identifier) @function)
+
+(test_case
+  name: (identifier) @label)
+
+(eval_data
+  name: (identifier) @label)
+
+(eval_test_data
+  name: (identifier) @label)
+
+(eval_metric
+  name: (identifier) @label)
+
+(eval_metric
+  dataset: (identifier) @variable)
+
+(optimize_directive
+  name: (identifier) @label)
+
+(input_segment
   name: (identifier) @variable)
 
-(case_definition
-  name: (identifier) @label)
+(call_segment
+  name: (identifier) @function)
 
-(metric_definition
-  name: (identifier) @label)
+(output_segment
+  name: (identifier) @variable)
 
-(substitution) @variable
-(template_text) @text.literal
-(string_literal) @string
-(inline_python_code) @embedded
-(python_code_line) @embedded
-(escape_sequence) @string.escape
+(text_segment) @text.literal
+(python_code) @embedded
+(python_inline_body) @embedded
 
 [
-  "@test"
-  "@eval"
+  "auto"
+  "optimize"
   "case"
+  "data"
+  "test_data"
   "metric"
 ] @keyword
 
 [
   "="
   "->"
+  "|"
 ] @operator
 
 [
   "@"
   "~"
   ">"
+  "```"
+  "`"
 ] @punctuation.special
 
 [

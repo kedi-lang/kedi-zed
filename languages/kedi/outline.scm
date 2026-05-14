@@ -1,17 +1,24 @@
-(procedure_definition
+(procedure_def
   name: (identifier) @name) @item
 
-(type_definition
+(type_def
   name: (identifier) @name) @item
 
-(test_definition
+(validation_block
+  kw: (validation_keyword) @context
+  procedure: (identifier) @name) @item
+
+(test_case
   name: (identifier) @name) @item
 
-(eval_definition
+(eval_data
   name: (identifier) @name) @item
 
-(case_definition
+(eval_test_data
   name: (identifier) @name) @item
 
-(metric_definition
+(eval_metric
+  name: (identifier) @name) @item
+
+(optimize_directive
   name: (identifier) @name) @item

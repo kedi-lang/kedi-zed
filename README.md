@@ -2,11 +2,34 @@
 
 Kedi language support for Zed with:
 
-- a local `tree-sitter-kedi` grammar
+- the canonical `tree-sitter-kedi` grammar from the grammar repository
 - query files for highlighting, outline, bracket matching, indentation, and Python injection
 - `kedi-lsp` integration for diagnostics, formatting, rename, references, hover, document symbols, signature help, and inlay hints
 - an embedded-Python proxy language server for Python hover, definition, and references inside Kedi backtick / fenced Python regions
 - language snippets for common Kedi forms
+
+## Installation
+
+### From Zed's extension registry
+
+1. Open Zed.
+2. Go to `Zed > Extensions`.
+3. Search for `Kedi`.
+4. Select the `Kedi` extension and click `Install`.
+5. Open a `.kedi` file.
+
+The extension grammar is pulled from `https://github.com/kedi-lang/tree-sitter-kedi` at the revision declared in `extension.toml`.
+
+### Local dev extension
+
+1. Clone or open this repository locally.
+2. Open Zed.
+3. Go to `Zed > Extensions`.
+4. Choose `Install Dev Extension`.
+5. Select the `kedi-zed` directory.
+6. Open a `.kedi` file.
+
+Select the Zed extension directory (`kedi-zed`), not the `tree-sitter-kedi` grammar repository. Zed reads `extension.toml`, downloads/builds the grammar from the configured repository, and starts the Kedi language servers from this extension.
 
 The extension resolves the language server in this order:
 

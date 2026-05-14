@@ -1,10 +1,17 @@
 [
-  (procedure_definition)
-  (test_definition)
-  (eval_definition)
-  (case_definition)
-  (metric_definition)
+  (procedure_def)
+  (validation_block)
+  (test_case)
+  (eval_data)
+  (eval_test_data)
+  (eval_metric)
   (python_block)
+  (assign_block_stmt)
+  (return_block_stmt)
 ] @indent
 
-(python_fence_close) @end
+[
+  (python_block "```" "```" @end)
+  (assign_block_stmt "```" "```" @end)
+  (return_block_stmt "```" "```" @end)
+]

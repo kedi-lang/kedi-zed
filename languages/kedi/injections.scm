@@ -1,7 +1,7 @@
-(python_block
-  (python_code_line) @injection.content
-  (#set! injection.language "python"))
+((python_code) @injection.content
+  (#set! injection.language "python")
+  (#set! injection.include-children))
 
-(inline_python
-  (inline_python_code) @injection.content
-  (#set! injection.language "python"))
+((python_inline_body) @injection.content
+  (#set! injection.language "python")
+  (#set! injection.include-children))

@@ -1,5 +1,5 @@
 target/
 node_modules/
-tree-sitter-kedi/node_modules/
+tree-sitter-kedi/
 extension.wasm
 grammars/
