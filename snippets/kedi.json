@@ -1,0 +1,53 @@
+{
+  "Procedure Definition": {
+    "prefix": "@",
+    "body": [
+      "@${1:procedure_name}(${2:params}):",
+      "  ${3:# procedure body}",
+      "  = ${4:result}",
+      "$0"
+    ],
+    "description": "Create a procedure definition"
+  },
+  "Inline Python Expression": {
+    "prefix": "py",
+    "body": [
+      "<`${1:expression}`>$0"
+    ],
+    "description": "Insert an inline Python expression"
+  },
+  "Python Block": {
+    "prefix": "```",
+    "body": [
+      "```",
+      "${1:return value}",
+      "```",
+      "$0"
+    ],
+    "description": "Insert a fenced Python block"
+  },
+  "Return Statement": {
+    "prefix": "=",
+    "body": [
+      "= ${1:expression}$0"
+    ],
+    "description": "Create a return statement"
+  },
+  "Return Python Block": {
+    "prefix": "=py",
+    "body": [
+      "= ```",
+      "${1:return value}",
+      "```",
+      "$0"
+    ],
+    "description": "Create a return statement backed by Python"
+  },
+  "List Type": {
+    "prefix": "list[",
+    "body": [
+      "list[${1:str}]$0"
+    ],
+    "description": "Insert list type annotation"
+  }
+}

@@ -1,0 +1,31 @@
+id = "kedi"
+name = "Kedi"
+version = "0.1.0"
+schema_version = 1
+authors = ["Mert <mert@kedi-lang.org>"]
+description = "Kedi language support for Zed via Tree-sitter queries and kedi-lsp."
+repository = "https://github.com/kedi-lang/kedi-zed"
+snippets = ["./snippets/kedi.json"]
+
+[[capabilities]]
+kind = "process:exec"
+command = "*"
+args = ["**"]
+
+[language_servers.kedi-lsp]
+name = "kedi-lsp"
+languages = ["Kedi"]
+
+[language_servers.kedi-lsp.language_ids]
+"Kedi" = "kedi"
+
+[language_servers.kedi-embedded-python]
+name = "kedi-embedded-python"
+languages = ["Kedi"]
+
+[language_servers.kedi-embedded-python.language_ids]
+"Kedi" = "kedi"
+
+[grammars.kedi]
+repository = "file:///private/tmp/kedi-zed-src/tree-sitter-kedi"
+rev = "557238ecdd4b98d1a0711b9a21567cac61a8924f"

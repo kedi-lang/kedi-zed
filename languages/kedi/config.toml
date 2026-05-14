@@ -1,0 +1,15 @@
+name = "Kedi"
+grammar = "kedi"
+path_suffixes = ["kedi"]
+line_comments = ["# "]
+block_comment = { start = "###", prefix = "", end = "###", tab_size = 0 }
+
+brackets = [
+  { start = "(", end = ")", close = true, newline = false },
+  { start = "[", end = "]", close = true, newline = false },
+  { start = "<", end = ">", close = true, newline = false },
+  { start = "{", end = "}", close = true, newline = false },
+  { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+  { start = "'", end = "'", close = true, newline = false, not_in = ["string", "comment"] },
+  { start = "`", end = "`", close = true, newline = false, not_in = ["string", "comment"] }
+]

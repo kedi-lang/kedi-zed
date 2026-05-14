@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v rustup >/dev/null 2>&1; then
+  exec rustup run stable rustc "$@"
+fi
+
+exec rustc "$@"
