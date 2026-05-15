@@ -1,7 +1,9 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const pyrightEntrypoint = process.argv[2] ?? process.argv[1];
 const debugEnabled = process.env.KEDI_DEBUG_EMBEDDED_PYTHON === "1";
+const virtualizerCommand = process.env.KEDI_PYTHON_VIRTUALIZER_COMMAND || "python3";
+const virtualizerArgs = parseVirtualizerArgs(process.env.KEDI_PYTHON_VIRTUALIZER_ARGS);
 
 if (!pyrightEntrypoint) {
   process.stderr.write("Missing pyright entrypoint argument.\n");
@@ -22,9 +24,25 @@ let pyrightInitialized = false;
 let pendingNotifications = [];
 let pendingClientInitializeId = null;
 let latestConfig = {};
+let warnedVirtualizerFallback = false;
 
 const docs = new Map();
 const pendingPyrightRequests = new Map();
+
+function parseVirtualizerArgs(raw) {
+  if (!raw) {
+    return ["-c", "from kedi.lsp.python_virtual import main; main()"];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to whitespace splitting.
+  }
+  return raw.split(/\s+/).filter(Boolean);
+}
 
 function debug(...args) {
   if (!debugEnabled) {
@@ -152,7 +170,10 @@ function extractPythonRanges(text) {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
     const trimmed = line.trim();
-    if (!trimmed.startsWith("```")) {
+    const fenceIndex = trimmed.indexOf("```");
+    const beforeFence = fenceIndex === -1 ? "" : trimmed.slice(0, fenceIndex).trim();
+    const isFenceLine = fenceIndex !== -1 && (beforeFence === "" || beforeFence.endsWith("="));
+    if (!isFenceLine) {
       continue;
     }
 
@@ -224,6 +245,7 @@ function extractPythonRanges(text) {
 function buildBlankedPythonDocument(text, ranges) {
   const chars = Array.from(text);
   const keep = new Array(chars.length).fill(false);
+  const lineOffsets = buildLineOffsets(text);
 
   for (const range of ranges) {
     for (let i = range.startOffset; i < range.endOffset && i < keep.length; i += 1) {
@@ -231,20 +253,192 @@ function buildBlankedPythonDocument(text, ranges) {
     }
   }
 
-  return chars
+  const out = chars
     .map((char, index) => {
       if (keep[index] || char === "\n") {
         return char;
       }
       return " ";
     })
-    .join("");
+    .join("")
+    .split("");
+
+  addIndentWrappers(text, ranges, lineOffsets, out);
+  return out.join("");
+}
+
+function lineEndOffset(text, lineOffsets, line) {
+  const next = line + 1 < lineOffsets.length ? lineOffsets[line + 1] : text.length;
+  return next > 0 && text[next - 1] === "\n" ? next - 1 : next;
+}
+
+function lineLength(text, lineOffsets, line) {
+  return lineEndOffset(text, lineOffsets, line) - lineOffsets[line];
+}
+
+function writeLinePrefix(out, lineOffsets, line, value) {
+  const start = lineOffsets[line];
+  for (let i = 0; i < value.length; i += 1) {
+    out[start + i] = value[i];
+  }
+}
+
+function firstCodePositionInRange(text, lineOffsets, range) {
+  for (let offset = range.startOffset; offset < range.endOffset; offset += 1) {
+    const char = text[offset];
+    if (char === " " || char === "\t" || char === "\r" || char === "\n") {
+      continue;
+    }
+    return offsetToPosition(lineOffsets, offset);
+  }
+  return null;
+}
+
+function addIndentWrappers(text, ranges, lineOffsets, out) {
+  const wrapper = "if 1:";
+  const wrappedLines = new Set();
+
+  for (const range of ranges) {
+    const firstCodePosition = firstCodePositionInRange(text, lineOffsets, range);
+    if (!firstCodePosition || firstCodePosition.character === 0) {
+      continue;
+    }
+
+    for (let line = firstCodePosition.line - 1; line >= 0; line -= 1) {
+      if (wrappedLines.has(line)) {
+        break;
+      }
+      if (lineLength(text, lineOffsets, line) < wrapper.length) {
+        continue;
+      }
+      writeLinePrefix(out, lineOffsets, line, wrapper);
+      wrappedLines.add(line);
+      break;
+    }
+  }
+}
+
+function normalizeRange(raw) {
+  if (!raw) {
+    return {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 0 },
+    };
+  }
+  return {
+    start: {
+      line: Number(raw.start?.line ?? 0),
+      character: Number(raw.start?.character ?? 0),
+    },
+    end: {
+      line: Number(raw.end?.line ?? 0),
+      character: Number(raw.end?.character ?? 0),
+    },
+  };
+}
+
+function fallbackMappings(ranges) {
+  const mappings = [];
+  for (const range of ranges) {
+    const startLine = range.range.start.line;
+    const endLine = range.range.end.line;
+    for (let line = startLine; line <= endLine; line += 1) {
+      const startCharacter = line === startLine ? range.range.start.character : 0;
+      const endCharacter = line === endLine ? range.range.end.character : Number.MAX_SAFE_INTEGER;
+      if (line === endLine && endCharacter === 0) {
+        continue;
+      }
+      const mappedRange = {
+        start: { line, character: startCharacter },
+        end: { line, character: endCharacter },
+      };
+      mappings.push({
+        kind: range.kind,
+        sourceRange: mappedRange,
+        virtualRange: mappedRange,
+      });
+    }
+  }
+  return mappings;
+}
+
+function computeScopeAwareVirtualDocument(uri, text) {
+  const input = JSON.stringify({ text, uri });
+  const result = spawnSync(virtualizerCommand, virtualizerArgs, {
+    input,
+    encoding: "utf8",
+    env: process.env,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  if (result.status !== 0 || !result.stdout) {
+    debug("virtualizer fallback", result.status, result.stderr || "");
+    warnVirtualizerFallback(result.status, result.stderr);
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(result.stdout);
+    const ranges = (payload.ranges ?? []).map((range) => ({
+      kind: range.kind,
+      range: normalizeRange(range.sourceRange ?? range.range),
+      virtualRange: normalizeRange(range.virtualRange),
+      text: range.text ?? "",
+    }));
+    const mappings = (payload.mappings ?? []).map((mapping) => ({
+      kind: mapping.kind,
+      sourceRange: normalizeRange(mapping.sourceRange),
+      virtualRange: normalizeRange(mapping.virtualRange),
+    }));
+    const symbols = (payload.symbols ?? []).map((symbol) => ({
+      kind: symbol.kind,
+      name: symbol.name,
+      sourceRange: normalizeRange(symbol.sourceRange),
+      virtualRange: normalizeRange(symbol.virtualRange),
+    }));
+    if (typeof payload.text === "string" && ranges.length > 0 && mappings.length > 0) {
+      return {
+        text: payload.text,
+        ranges,
+        mappings,
+        symbols,
+      };
+    }
+  } catch (error) {
+    debug("virtualizer parse failed", String(error));
+  }
+  return null;
+}
+
+function warnVirtualizerFallback(status, stderr) {
+  if (warnedVirtualizerFallback) {
+    return;
+  }
+  warnedVirtualizerFallback = true;
+  const detail = String(stderr || "").trim().split(/\r?\n/).slice(-1)[0] || `exit status ${status}`;
+  process.stderr.write(
+    `[kedi-embedded-python] scope-aware virtualizer unavailable via ${virtualizerCommand}: ${detail}\n`,
+  );
+}
+
+function buildPythonDocument(uri, text) {
+  const scopeAware = computeScopeAwareVirtualDocument(uri, text);
+  if (scopeAware) {
+    return scopeAware;
+  }
+
+  const ranges = extractPythonRanges(text);
+  return {
+    text: buildBlankedPythonDocument(text, ranges),
+    ranges,
+    mappings: fallbackMappings(ranges),
+    symbols: [],
+  };
 }
 
 function syncDocumentToPyright(uri, text, version) {
   const virtualUri = createVirtualUri(uri);
-  const ranges = extractPythonRanges(text);
-  const blankedText = buildBlankedPythonDocument(text, ranges);
+  const virtualDoc = buildPythonDocument(uri, text);
   const previous = docs.get(uri);
 
   docs.set(uri, {
@@ -252,9 +446,12 @@ function syncDocumentToPyright(uri, text, version) {
     virtualUri,
     text,
     version,
-    ranges,
-    blankedText,
+    ranges: virtualDoc.ranges,
+    mappings: virtualDoc.mappings,
+    symbols: virtualDoc.symbols,
+    blankedText: virtualDoc.text,
   });
+  debug("sync", uri, "as", virtualUri, "ranges", JSON.stringify(virtualDoc.ranges.map((range) => range.range)));
 
   if (previous) {
     queueOrSendToPyright({
@@ -262,7 +459,7 @@ function syncDocumentToPyright(uri, text, version) {
       method: "textDocument/didChange",
       params: {
         textDocument: { uri: virtualUri, version },
-        contentChanges: [{ text: blankedText }],
+        contentChanges: [{ text: virtualDoc.text }],
       },
     });
     return;
@@ -276,7 +473,7 @@ function syncDocumentToPyright(uri, text, version) {
         uri: virtualUri,
         languageId: "python",
         version,
-        text: blankedText,
+        text: virtualDoc.text,
       },
     },
   });
@@ -307,21 +504,193 @@ function mapUri(uri) {
   return uri;
 }
 
-function mapLocations(result) {
+function mapPosition(mappings, position, fromKey, toKey) {
+  for (const mapping of mappings) {
+    const from = mapping[fromKey];
+    const to = mapping[toKey];
+    if (!from || !to || !isPositionInRange(position, from)) {
+      continue;
+    }
+    return {
+      line: to.start.line,
+      character: position.character + to.start.character - from.start.character,
+    };
+  }
+  return null;
+}
+
+function mapRange(mappings, range, fromKey, toKey) {
+  if (!range) {
+    return null;
+  }
+  const start = mapPosition(mappings, range.start, fromKey, toKey);
+  let end = mapPosition(mappings, range.end, fromKey, toKey);
+  if (!end && range.end.character > 0) {
+    end = mapPosition(
+      mappings,
+      { line: range.end.line, character: range.end.character - 1 },
+      fromKey,
+      toKey,
+    );
+    if (end) {
+      end = { ...end, character: end.character + 1 };
+    }
+  }
+  if (!start || !end) {
+    return null;
+  }
+  return { start, end };
+}
+
+function mapVirtualRangeToSource(doc, range) {
+  return (
+    mapRange(doc.mappings, range, "virtualRange", "sourceRange") ??
+    mapRange(doc.symbols ?? [], range, "virtualRange", "sourceRange")
+  );
+}
+
+function virtualWordAtPosition(doc, position) {
+  const line = (doc.blankedText ?? "").split(/\r?\n/)[position.line] ?? "";
+  let index = position.character;
+  if (!isIdentifierChar(line[index] ?? "")) {
+    index -= 1;
+  }
+  if (index < 0 || !isIdentifierChar(line[index] ?? "")) {
+    return null;
+  }
+
+  let start = index;
+  while (start > 0 && isIdentifierChar(line[start - 1])) {
+    start -= 1;
+  }
+  let end = index + 1;
+  while (end < line.length && isIdentifierChar(line[end])) {
+    end += 1;
+  }
+  return {
+    name: line.slice(start, end),
+    range: {
+      start: { line: position.line, character: start },
+      end: { line: position.line, character: end },
+    },
+  };
+}
+
+function isIdentifierChar(char) {
+  return /^[A-Za-z0-9_]$/.test(char);
+}
+
+function syntheticSymbolAtPosition(doc, position) {
+  const word = virtualWordAtPosition(doc, position);
+  if (!word) {
+    return null;
+  }
+  const candidates = (doc.symbols ?? [])
+    .filter((symbol) => symbol.name === word.name)
+    .sort((a, b) => comparePosition(b.virtualRange.start, a.virtualRange.start));
+  const symbol = candidates.find(
+    (candidate) => comparePosition(candidate.virtualRange.start, position) <= 0,
+  );
+  return symbol ? { symbol, wordRange: word.range } : null;
+}
+
+function sameRange(a, b) {
+  return (
+    a?.start?.line === b?.start?.line &&
+    a?.start?.character === b?.start?.character &&
+    a?.end?.line === b?.end?.line &&
+    a?.end?.character === b?.end?.character
+  );
+}
+
+function hasLocation(locations, candidate) {
+  return locations.some(
+    (location) => location.uri === candidate.uri && sameRange(location.range, candidate.range),
+  );
+}
+
+function applySyntheticFallback(method, mappedResult, doc, virtualPosition) {
+  if (!doc || !virtualPosition) {
+    return mappedResult;
+  }
+  const synthetic = syntheticSymbolAtPosition(doc, virtualPosition);
+  if (!synthetic) {
+    return mappedResult;
+  }
+
+  if (method === "textDocument/definition") {
+    if (Array.isArray(mappedResult) && mappedResult.length > 0) {
+      return mappedResult;
+    }
+    if (mappedResult && !Array.isArray(mappedResult)) {
+      return mappedResult;
+    }
+    return [{ uri: doc.uri, range: synthetic.symbol.sourceRange }];
+  }
+
+  if (method === "textDocument/references") {
+    const references = Array.isArray(mappedResult) ? [...mappedResult] : [];
+    const declaration = { uri: doc.uri, range: synthetic.symbol.sourceRange };
+    if (!hasLocation(references, declaration)) {
+      references.unshift(declaration);
+    }
+    const usageRange = mapVirtualRangeToSource(doc, synthetic.wordRange);
+    if (usageRange) {
+      const usage = { uri: doc.uri, range: usageRange };
+      if (!hasLocation(references, usage)) {
+        references.push(usage);
+      }
+    }
+    return references;
+  }
+
+  return mappedResult;
+}
+
+function mapResult(result, doc) {
   if (!result) {
     return result;
   }
   if (Array.isArray(result)) {
-    return result.map(mapLocations);
+    return result.map((item) => mapResult(item, doc)).filter((item) => item !== null);
   }
   if (typeof result !== "object") {
     return result;
   }
   if (typeof result.uri === "string" && result.range) {
-    return { ...result, uri: mapUri(result.uri) };
+    if (!doc || result.uri !== doc.virtualUri) {
+      return { ...result, uri: mapUri(result.uri) };
+    }
+    const range = mapVirtualRangeToSource(doc, result.range);
+    return range ? { ...result, uri: doc.uri, range } : null;
   }
   if (typeof result.targetUri === "string") {
-    return { ...result, targetUri: mapUri(result.targetUri) };
+    if (!doc || result.targetUri !== doc.virtualUri) {
+      return { ...result, targetUri: mapUri(result.targetUri) };
+    }
+    const targetRange = mapVirtualRangeToSource(doc, result.targetRange);
+    const targetSelectionRange = mapVirtualRangeToSource(
+      doc,
+      result.targetSelectionRange ?? result.targetRange,
+    );
+    if (!targetRange || !targetSelectionRange) {
+      return null;
+    }
+    return {
+      ...result,
+      targetUri: doc.uri,
+      targetRange,
+      targetSelectionRange,
+    };
+  }
+  if (result.range && doc) {
+    const range = mapVirtualRangeToSource(doc, result.range);
+    if (range) {
+      return { ...result, range };
+    }
+    const clone = { ...result };
+    delete clone.range;
+    return clone;
   }
   return result;
 }
@@ -382,12 +751,23 @@ function handleClientRequest(message) {
         });
         return;
       }
+      const virtualPosition = mapPosition(doc.mappings, position, "sourceRange", "virtualRange");
+      if (!virtualPosition) {
+        sendToClient({
+          jsonrpc: "2.0",
+          id: message.id,
+          result: respondEmptyForMethod(message.method),
+        });
+        return;
+      }
 
       const pyrightId = nextPyrightId++;
       pendingPyrightRequests.set(pyrightId, {
         type: "clientRequest",
         clientId: message.id,
         method: message.method,
+        docUri: uri,
+        virtualPosition,
       });
 
       sendToPyright({
@@ -400,6 +780,7 @@ function handleClientRequest(message) {
             ...message.params.textDocument,
             uri: doc.virtualUri,
           },
+          position: virtualPosition,
         },
       });
       return;
@@ -471,6 +852,12 @@ function handlePyrightMessage(message) {
       });
       return;
     }
+    sendToPyright({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: null,
+    });
+    return;
   }
 
   if (typeof message.id !== "undefined") {
@@ -506,10 +893,17 @@ function handlePyrightMessage(message) {
     }
 
     if (pending.type === "clientRequest") {
+      const doc = docs.get(pending.docUri);
+      const mappedResult = mapResult(message.result, doc);
       sendToClient({
         jsonrpc: "2.0",
         id: pending.clientId,
-        result: mapLocations(message.result),
+        result: applySyntheticFallback(
+          pending.method,
+          mappedResult,
+          doc,
+          pending.virtualPosition,
+        ),
       });
       return;
     }

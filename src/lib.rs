@@ -1,4 +1,7 @@
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use zed_extension_api::{
     self as zed, LanguageServerId, Result, node_binary_path, process::Command,
@@ -11,6 +14,8 @@ const PYRIGHT_PACKAGE_NAME: &str = "pyright";
 const EMBEDDED_PYTHON_PROXY_SOURCE: &str = include_str!("../embedded-python-proxy/server.mjs");
 const EMBEDDED_PYTHON_PROXY_ENV: &str = "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE";
 const EMBEDDED_PYTHON_PROXY_LOADER: &str = "await import(\"data:text/javascript;charset=utf-8,\" + encodeURIComponent(process.env.KEDI_EMBEDDED_PYTHON_PROXY_SOURCE))";
+const PYTHON_VIRTUALIZER_ARGS: &str =
+    "[\"-c\",\"from kedi.lsp.python_virtual import main; main()\"]";
 
 struct KediExtension {
     cached_pyright_entrypoint: Option<String>,
@@ -54,6 +59,57 @@ impl KediExtension {
 
     fn embedded_python_backend_exists(&self) -> bool {
         Self::pyright_entrypoint_path().is_ok()
+    }
+
+    fn configured_kedi_lsp_path(worktree: &zed::Worktree) -> Option<String> {
+        LspSettings::for_worktree(KEDI_LSP_ID, worktree)
+            .ok()
+            .and_then(|settings| settings.binary)
+            .and_then(|binary| binary.path)
+            .or_else(|| worktree.which(KEDI_LSP_ID))
+    }
+
+    fn python_from_shebang(path: &str, worktree: &zed::Worktree) -> Option<String> {
+        let first_line = fs::read_to_string(path).ok()?.lines().next()?.to_string();
+        let shebang = first_line.strip_prefix("#!")?.trim();
+        let mut parts = shebang.split_whitespace();
+        let program = parts.next()?;
+
+        if program.ends_with("/env") || program == "env" {
+            for arg in parts {
+                if arg.starts_with('-') || arg.contains('=') {
+                    continue;
+                }
+                return worktree.which(arg).or_else(|| Some(arg.to_string()));
+            }
+            return None;
+        }
+
+        Some(program.to_string())
+    }
+
+    fn looks_like_python(path: &str) -> bool {
+        Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("python"))
+    }
+
+    fn virtualizer_python(worktree: &zed::Worktree) -> String {
+        if let Some(kedi_lsp_path) = Self::configured_kedi_lsp_path(worktree) {
+            if Self::looks_like_python(&kedi_lsp_path) {
+                return kedi_lsp_path;
+            }
+            if let Some(interpreter) = Self::python_from_shebang(&kedi_lsp_path, worktree) {
+                return interpreter;
+            }
+        }
+
+        worktree
+            .which("python3.11")
+            .or_else(|| worktree.which("python3"))
+            .or_else(|| worktree.which("python"))
+            .unwrap_or_else(|| "python3".to_string())
     }
 
     fn installed_pyright_version(&self) -> Option<String> {
@@ -178,10 +234,13 @@ impl KediExtension {
 
         let pyright_entrypoint = self.ensure_pyright(id, settings.package_version.as_deref())?;
         let node = node_binary_path()?;
+        let virtualizer_python = Self::virtualizer_python(worktree);
 
         let mut command = Command::new(node)
             .envs(shell_env)
             .env(EMBEDDED_PYTHON_PROXY_ENV, EMBEDDED_PYTHON_PROXY_SOURCE)
+            .env("KEDI_PYTHON_VIRTUALIZER_COMMAND", virtualizer_python)
+            .env("KEDI_PYTHON_VIRTUALIZER_ARGS", PYTHON_VIRTUALIZER_ARGS)
             .args([
                 "--input-type=module".to_string(),
                 "--eval".to_string(),
