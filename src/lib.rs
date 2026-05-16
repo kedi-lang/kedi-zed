@@ -15,7 +15,7 @@ const EMBEDDED_PYTHON_PROXY_SOURCE: &str = include_str!("../embedded-python-prox
 const EMBEDDED_PYTHON_PROXY_ENV: &str = "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE";
 const EMBEDDED_PYTHON_PROXY_LOADER: &str = "await import(\"data:text/javascript;charset=utf-8,\" + encodeURIComponent(process.env.KEDI_EMBEDDED_PYTHON_PROXY_SOURCE))";
 const PYTHON_VIRTUALIZER_ARGS: &str =
-    "[\"-c\",\"from kedi.lsp.python_virtual import main; main()\"]";
+    "[\"-c\",\"from kedi.lsp.python_virtual import main_loop; main_loop()\"]";
 
 struct KediExtension {
     cached_pyright_entrypoint: Option<String>,

@@ -1,9 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const pyrightEntrypoint = process.argv[2] ?? process.argv[1];
 const debugEnabled = process.env.KEDI_DEBUG_EMBEDDED_PYTHON === "1";
 const virtualizerCommand = process.env.KEDI_PYTHON_VIRTUALIZER_COMMAND || "python3";
 const virtualizerArgs = parseVirtualizerArgs(process.env.KEDI_PYTHON_VIRTUALIZER_ARGS);
+const VIRTUALIZER_TIMEOUT_MS = 5000;
+const DOCUMENT_SYNC_DEBOUNCE_MS = 75;
+const VIRTUAL_DOC_CACHE_LIMIT = 32;
 
 if (!pyrightEntrypoint) {
   process.stderr.write("Missing pyright entrypoint argument.\n");
@@ -25,9 +29,18 @@ let pendingNotifications = [];
 let pendingClientInitializeId = null;
 let latestConfig = {};
 let warnedVirtualizerFallback = false;
+let virtualizer = null;
+let virtualizerBuffer = "";
+let nextVirtualizerId = 1;
+let nextDocumentSyncToken = 1;
 
 const docs = new Map();
+const activeDocumentSyncs = new Map();
+const pendingDocumentSyncs = new Map();
 const pendingPyrightRequests = new Map();
+const pendingVirtualizerRequests = new Map();
+const latestDocumentTokens = new Map();
+const virtualDocCache = new Map();
 
 function parseVirtualizerArgs(raw) {
   if (!raw) {
@@ -49,6 +62,160 @@ function debug(...args) {
     return;
   }
   process.stderr.write(`[kedi-embedded-python] ${args.join(" ")}\n`);
+}
+
+function sourceCacheKey(uri, text) {
+  const hash = createHash("sha1").update(text).digest("hex");
+  return `${uri}\0${hash}`;
+}
+
+function getCachedVirtualDoc(uri, text) {
+  const key = sourceCacheKey(uri, text);
+  const cached = virtualDocCache.get(key);
+  if (!cached) {
+    return null;
+  }
+  virtualDocCache.delete(key);
+  virtualDocCache.set(key, cached);
+  return cached;
+}
+
+function rememberVirtualDoc(uri, text, virtualDoc) {
+  const key = sourceCacheKey(uri, text);
+  if (virtualDocCache.has(key)) {
+    virtualDocCache.delete(key);
+  }
+  virtualDocCache.set(key, virtualDoc);
+  while (virtualDocCache.size > VIRTUAL_DOC_CACHE_LIMIT) {
+    const oldest = virtualDocCache.keys().next().value;
+    virtualDocCache.delete(oldest);
+  }
+}
+
+function normalizeVirtualPayload(payload) {
+  try {
+    const ranges = (payload.ranges ?? []).map((range) => ({
+      kind: range.kind,
+      range: normalizeRange(range.sourceRange ?? range.range),
+      virtualRange: normalizeRange(range.virtualRange),
+      text: range.text ?? "",
+    }));
+    const mappings = (payload.mappings ?? []).map((mapping) => ({
+      kind: mapping.kind,
+      sourceRange: normalizeRange(mapping.sourceRange),
+      virtualRange: normalizeRange(mapping.virtualRange),
+    }));
+    const symbols = (payload.symbols ?? []).map((symbol) => ({
+      kind: symbol.kind,
+      name: symbol.name,
+      sourceRange: normalizeRange(symbol.sourceRange),
+      virtualRange: normalizeRange(symbol.virtualRange),
+    }));
+    if (typeof payload.text === "string" && ranges.length > 0 && mappings.length > 0) {
+      return {
+        text: payload.text,
+        ranges,
+        mappings,
+        symbols,
+      };
+    }
+  } catch (error) {
+    debug("virtualizer normalize failed", String(error));
+  }
+  return null;
+}
+
+function rejectPendingVirtualizerRequests(error) {
+  for (const pending of pendingVirtualizerRequests.values()) {
+    clearTimeout(pending.timeout);
+    pending.reject(error);
+  }
+  pendingVirtualizerRequests.clear();
+}
+
+function stopVirtualizer() {
+  if (!virtualizer) {
+    return;
+  }
+  const child = virtualizer;
+  virtualizer = null;
+  child.removeAllListeners("exit");
+  child.kill();
+}
+
+function ensureVirtualizer() {
+  if (virtualizer && !virtualizer.killed) {
+    return virtualizer;
+  }
+
+  virtualizerBuffer = "";
+  virtualizer = spawn(virtualizerCommand, virtualizerArgs, {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: process.env,
+  });
+
+  virtualizer.stderr.on("data", (chunk) => {
+    debug("virtualizer stderr", chunk.toString("utf8").trim());
+  });
+  virtualizer.stdout.on("data", handleVirtualizerData);
+  virtualizer.on("exit", (code, signal) => {
+    debug("virtualizer exited", `code=${code}`, `signal=${signal}`);
+    virtualizer = null;
+    rejectPendingVirtualizerRequests(
+      new Error(`virtualizer exited (code=${code}, signal=${signal})`),
+    );
+  });
+  return virtualizer;
+}
+
+function handleVirtualizerData(chunk) {
+  virtualizerBuffer += chunk.toString("utf8");
+  while (true) {
+    const newline = virtualizerBuffer.indexOf("\n");
+    if (newline === -1) {
+      return;
+    }
+    const line = virtualizerBuffer.slice(0, newline).trim();
+    virtualizerBuffer = virtualizerBuffer.slice(newline + 1);
+    if (!line) {
+      continue;
+    }
+
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      debug("virtualizer invalid json", String(error));
+      continue;
+    }
+
+    const pending = pendingVirtualizerRequests.get(message.id);
+    if (!pending) {
+      continue;
+    }
+    pendingVirtualizerRequests.delete(message.id);
+    clearTimeout(pending.timeout);
+    if (message.ok) {
+      pending.resolve(message.result);
+    } else {
+      pending.reject(new Error(message.error || "virtualizer failed"));
+    }
+  }
+}
+
+function requestPersistentVirtualDocument(uri, text) {
+  const child = ensureVirtualizer();
+  const id = nextVirtualizerId++;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingVirtualizerRequests.delete(id);
+      stopVirtualizer();
+      reject(new Error("virtualizer request timed out"));
+      rejectPendingVirtualizerRequests(new Error("virtualizer stopped after timeout"));
+    }, VIRTUALIZER_TIMEOUT_MS);
+    pendingVirtualizerRequests.set(id, { resolve, reject, timeout });
+    child.stdin.write(`${JSON.stringify({ id, uri, text })}\n`);
+  });
 }
 
 class Reader {
@@ -362,7 +529,34 @@ function fallbackMappings(ranges) {
   return mappings;
 }
 
-function computeScopeAwareVirtualDocument(uri, text) {
+async function computeScopeAwareVirtualDocument(uri, text) {
+  const cached = getCachedVirtualDoc(uri, text);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const payload = await requestPersistentVirtualDocument(uri, text);
+    const virtualDoc = normalizeVirtualPayload(payload);
+    if (virtualDoc) {
+      rememberVirtualDoc(uri, text, virtualDoc);
+      return virtualDoc;
+    }
+  } catch (error) {
+    debug("persistent virtualizer failed", String(error));
+    stopVirtualizer();
+    try {
+      const payload = await requestPersistentVirtualDocument(uri, text);
+      const virtualDoc = normalizeVirtualPayload(payload);
+      if (virtualDoc) {
+        rememberVirtualDoc(uri, text, virtualDoc);
+        return virtualDoc;
+      }
+    } catch (retryError) {
+      debug("persistent virtualizer retry failed", String(retryError));
+    }
+  }
+
   const input = JSON.stringify({ text, uri });
   const result = spawnSync(virtualizerCommand, virtualizerArgs, {
     input,
@@ -378,31 +572,13 @@ function computeScopeAwareVirtualDocument(uri, text) {
   }
 
   try {
-    const payload = JSON.parse(result.stdout);
-    const ranges = (payload.ranges ?? []).map((range) => ({
-      kind: range.kind,
-      range: normalizeRange(range.sourceRange ?? range.range),
-      virtualRange: normalizeRange(range.virtualRange),
-      text: range.text ?? "",
-    }));
-    const mappings = (payload.mappings ?? []).map((mapping) => ({
-      kind: mapping.kind,
-      sourceRange: normalizeRange(mapping.sourceRange),
-      virtualRange: normalizeRange(mapping.virtualRange),
-    }));
-    const symbols = (payload.symbols ?? []).map((symbol) => ({
-      kind: symbol.kind,
-      name: symbol.name,
-      sourceRange: normalizeRange(symbol.sourceRange),
-      virtualRange: normalizeRange(symbol.virtualRange),
-    }));
-    if (typeof payload.text === "string" && ranges.length > 0 && mappings.length > 0) {
-      return {
-        text: payload.text,
-        ranges,
-        mappings,
-        symbols,
-      };
+    const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1) || "{}");
+    const virtualDoc = normalizeVirtualPayload(
+      payload.ok && payload.result ? payload.result : payload,
+    );
+    if (virtualDoc) {
+      rememberVirtualDoc(uri, text, virtualDoc);
+      return virtualDoc;
     }
   } catch (error) {
     debug("virtualizer parse failed", String(error));
@@ -421,8 +597,8 @@ function warnVirtualizerFallback(status, stderr) {
   );
 }
 
-function buildPythonDocument(uri, text) {
-  const scopeAware = computeScopeAwareVirtualDocument(uri, text);
+async function buildPythonDocument(uri, text) {
+  const scopeAware = await computeScopeAwareVirtualDocument(uri, text);
   if (scopeAware) {
     return scopeAware;
   }
@@ -436,9 +612,26 @@ function buildPythonDocument(uri, text) {
   };
 }
 
-function syncDocumentToPyright(uri, text, version) {
+function markDocumentCurrent(uri) {
+  const token = nextDocumentSyncToken++;
+  latestDocumentTokens.set(uri, token);
+  return token;
+}
+
+function markDocumentClosed(uri) {
+  latestDocumentTokens.set(uri, nextDocumentSyncToken++);
+}
+
+function isDocumentCurrent(uri, token) {
+  return latestDocumentTokens.get(uri) === token;
+}
+
+async function syncDocumentToPyright(uri, text, version, token) {
   const virtualUri = createVirtualUri(uri);
-  const virtualDoc = buildPythonDocument(uri, text);
+  const virtualDoc = await buildPythonDocument(uri, text);
+  if (!isDocumentCurrent(uri, token)) {
+    return;
+  }
   const previous = docs.get(uri);
 
   docs.set(uri, {
@@ -454,6 +647,9 @@ function syncDocumentToPyright(uri, text, version) {
   debug("sync", uri, "as", virtualUri, "ranges", JSON.stringify(virtualDoc.ranges.map((range) => range.range)));
 
   if (previous) {
+    if (previous.blankedText === virtualDoc.text) {
+      return;
+    }
     queueOrSendToPyright({
       jsonrpc: "2.0",
       method: "textDocument/didChange",
@@ -479,7 +675,64 @@ function syncDocumentToPyright(uri, text, version) {
   });
 }
 
+function runDocumentSync(uri, text, version, token) {
+  const previousSync = activeDocumentSyncs.get(uri) ?? Promise.resolve();
+  const sync = previousSync
+    .catch(() => {})
+    .then(() => syncDocumentToPyright(uri, text, version, token))
+    .catch((error) => {
+      process.stderr.write(`[kedi-embedded-python] sync failed for ${uri}: ${error}\n`);
+    });
+  activeDocumentSyncs.set(uri, sync);
+  sync.finally(() => {
+    if (activeDocumentSyncs.get(uri) === sync) {
+      activeDocumentSyncs.delete(uri);
+    }
+  });
+  return sync;
+}
+
+function scheduleDocumentSync(uri, text, version, token) {
+  const pending = pendingDocumentSyncs.get(uri);
+  if (pending) {
+    clearTimeout(pending.timer);
+  }
+  const timer = setTimeout(() => {
+    const latest = pendingDocumentSyncs.get(uri);
+    pendingDocumentSyncs.delete(uri);
+    if (latest) {
+      runDocumentSync(uri, latest.text, latest.version, latest.token);
+    }
+  }, DOCUMENT_SYNC_DEBOUNCE_MS);
+  pendingDocumentSyncs.set(uri, { text, version, token, timer });
+}
+
+async function flushDocumentSync(uri) {
+  const pending = pendingDocumentSyncs.get(uri);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingDocumentSyncs.delete(uri);
+    await runDocumentSync(uri, pending.text, pending.version, pending.token);
+    return;
+  }
+  const active = activeDocumentSyncs.get(uri);
+  if (active) {
+    await active;
+  }
+}
+
+function cancelPendingDocumentSync(uri) {
+  const pending = pendingDocumentSyncs.get(uri);
+  if (!pending) {
+    return;
+  }
+  clearTimeout(pending.timer);
+  pendingDocumentSyncs.delete(uri);
+}
+
 function closeDocumentInPyright(uri) {
+  markDocumentClosed(uri);
+  cancelPendingDocumentSync(uri);
   const existing = docs.get(uri);
   if (!existing) {
     return;
@@ -702,7 +955,7 @@ function respondEmptyForMethod(method) {
   return null;
 }
 
-function handleClientRequest(message) {
+async function handleClientRequest(message) {
   switch (message.method) {
     case "initialize": {
       pendingClientInitializeId = message.id;
@@ -732,6 +985,7 @@ function handleClientRequest(message) {
     case "textDocument/references": {
       const uri = message.params?.textDocument?.uri;
       const position = message.params?.position;
+      await flushDocumentSync(uri);
       const doc = docs.get(uri);
       if (!doc || !position) {
         sendToClient({
@@ -811,7 +1065,8 @@ function handleClientNotification(message) {
       if (!doc?.uri || typeof doc.text !== "string") {
         return;
       }
-      syncDocumentToPyright(doc.uri, doc.text, doc.version ?? 0);
+      const token = markDocumentCurrent(doc.uri);
+      runDocumentSync(doc.uri, doc.text, doc.version ?? 0, token);
       return;
     }
     case "textDocument/didChange": {
@@ -821,7 +1076,8 @@ function handleClientNotification(message) {
       if (!uri || typeof text !== "string") {
         return;
       }
-      syncDocumentToPyright(uri, text, version);
+      const token = markDocumentCurrent(uri);
+      scheduleDocumentSync(uri, text, version, token);
       return;
     }
     case "textDocument/didClose": {
@@ -833,6 +1089,7 @@ function handleClientNotification(message) {
       return;
     }
     case "exit":
+      stopVirtualizer();
       pyright.kill();
       process.exit(0);
       return;
@@ -919,7 +1176,16 @@ function handlePyrightMessage(message) {
 const clientReader = new Reader((message) => {
   if (typeof message.method === "string") {
     if (typeof message.id !== "undefined") {
-      handleClientRequest(message);
+      handleClientRequest(message).catch((error) => {
+        sendToClient({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: {
+            code: -32603,
+            message: String(error),
+          },
+        });
+      });
     } else {
       handleClientNotification(message);
     }
@@ -934,6 +1200,7 @@ process.stdin.on("data", () => debug("<-client chunk"));
 pyright.stdout.on("data", () => debug("<-pyright chunk"));
 
 pyright.on("exit", (code, signal) => {
+  stopVirtualizer();
   if (signal === "SIGTERM" || signal === "SIGINT") {
     process.exit(0);
     return;

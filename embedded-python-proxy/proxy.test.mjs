@@ -8,46 +8,85 @@ const proxyPath = path.join(root, "embedded-python-proxy", "server.mjs");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "kedi-proxy-test-"));
 const fakePyrightPath = path.join(tempDir, "fake-pyright.mjs");
 const fakeVirtualizerPath = path.join(tempDir, "fake-virtualizer.mjs");
+const virtualizerStartsPath = path.join(tempDir, "virtualizer-starts.txt");
+const virtualizerRequestsPath = path.join(tempDir, "virtualizer-requests.txt");
+const virtualizerCrashPath = path.join(tempDir, "virtualizer-crashed.txt");
+const pyrightChangesPath = path.join(tempDir, "pyright-changes.txt");
 
 fs.writeFileSync(
   fakeVirtualizerPath,
   [
-    "const payload = JSON.parse(await new Promise(resolve => {",
-    "  let data = '';",
-    "  process.stdin.setEncoding('utf8');",
-    "  process.stdin.on('data', chunk => data += chunk);",
-    "  process.stdin.on('end', () => resolve(data || '{}'));",
-    "}));",
-    "const text = payload.text || '';",
-    "let result;",
-    "if (text.includes('foo = 1')) {",
-    "  result = {",
-    "    text: 'from typing import Any\\n\\ndef __kedi_scope_x() -> str:\\n    def __kedi_block_foo() -> int:\\n        foo = 1\\n        foo\\n',",
-    "    ranges: [{ kind: 'fenced', range: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, sourceRange: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, virtualRange: { start: { line: 4, character: 8 }, end: { line: 5, character: 11 } }, text: 'foo = 1\\nfoo' }],",
-    "    mappings: [",
-    "      { kind: 'fenced', sourceRange: { start: { line: 2, character: 2 }, end: { line: 2, character: 9 } }, virtualRange: { start: { line: 4, character: 8 }, end: { line: 4, character: 15 } } },",
-    "      { kind: 'fenced', sourceRange: { start: { line: 3, character: 2 }, end: { line: 3, character: 5 } }, virtualRange: { start: { line: 5, character: 8 }, end: { line: 5, character: 11 } } }",
-    "    ],",
-    "    symbols: []",
-    "  };",
-    "} else {",
-    "  result = {",
+    "import fs from 'node:fs';",
+    `const startsPath = ${JSON.stringify(virtualizerStartsPath)};`,
+    `const requestsPath = ${JSON.stringify(virtualizerRequestsPath)};`,
+    `const crashPath = ${JSON.stringify(virtualizerCrashPath)};`,
+    "function increment(file) {",
+    "  let value = 0;",
+    "  try { value = Number(fs.readFileSync(file, 'utf8')) || 0; } catch {}",
+    "  fs.writeFileSync(file, String(value + 1));",
+    "}",
+    "function resultFor(text) {",
+    "  if (text.includes('foo = 1')) {",
+    "    return {",
+    "      text: 'from typing import Any\\n\\ndef __kedi_scope_x() -> str:\\n    def __kedi_block_foo() -> int:\\n        foo = 1\\n        foo\\n',",
+    "      ranges: [{ kind: 'fenced', range: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, sourceRange: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, virtualRange: { start: { line: 4, character: 8 }, end: { line: 5, character: 11 } }, text: 'foo = 1\\nfoo' }],",
+    "      mappings: [",
+    "        { kind: 'fenced', sourceRange: { start: { line: 2, character: 2 }, end: { line: 2, character: 9 } }, virtualRange: { start: { line: 4, character: 8 }, end: { line: 4, character: 15 } } },",
+    "        { kind: 'fenced', sourceRange: { start: { line: 3, character: 2 }, end: { line: 3, character: 5 } }, virtualRange: { start: { line: 5, character: 8 }, end: { line: 5, character: 11 } } }",
+    "      ],",
+    "      symbols: []",
+    "    };",
+    "  }",
+    "  return {",
     "    text: 'from typing import Any\\n\\ndef __kedi_scope_x() -> str:\\n    foo: int = ...\\n    foo\\n',",
     "    ranges: [{ kind: 'inline', range: { start: { line: 2, character: 7 }, end: { line: 2, character: 10 } }, sourceRange: { start: { line: 2, character: 7 }, end: { line: 2, character: 10 } }, virtualRange: { start: { line: 4, character: 4 }, end: { line: 4, character: 7 } }, text: 'foo' }],",
     "    mappings: [{ kind: 'inline', sourceRange: { start: { line: 2, character: 7 }, end: { line: 2, character: 10 } }, virtualRange: { start: { line: 4, character: 4 }, end: { line: 4, character: 7 } } }],",
     "    symbols: [{ kind: 'local', name: 'foo', sourceRange: { start: { line: 1, character: 3 }, end: { line: 1, character: 6 } }, virtualRange: { start: { line: 3, character: 4 }, end: { line: 3, character: 7 } } }]",
     "  };",
     "}",
-    "process.stdout.write(JSON.stringify(result));",
+    "function handleLine(line) {",
+    "  if (!line.trim()) return;",
+    "  const payload = JSON.parse(line);",
+    "  increment(requestsPath);",
+    "  const text = payload.text || '';",
+    "  if (text.includes('crash_once') && !fs.existsSync(crashPath)) {",
+    "    fs.writeFileSync(crashPath, '1');",
+    "    process.exit(2);",
+    "  }",
+    "  process.stdout.write(JSON.stringify({ id: payload.id, ok: true, result: resultFor(text) }) + '\\n');",
+    "}",
+    "increment(startsPath);",
+    "let data = '';",
+    "process.stdin.setEncoding('utf8');",
+    "process.stdin.on('data', chunk => {",
+    "  data += chunk;",
+    "  while (true) {",
+    "    const newline = data.indexOf('\\n');",
+    "    if (newline === -1) break;",
+    "    const line = data.slice(0, newline);",
+    "    data = data.slice(newline + 1);",
+    "    handleLine(line);",
+    "  }",
+    "});",
+    "process.stdin.on('end', () => {",
+    "  if (data.trim()) handleLine(data);",
+    "});",
   ].join("\n"),
 );
 
 fs.writeFileSync(
   fakePyrightPath,
   [
+    "import fs from 'node:fs';",
+    `const changesPath = ${JSON.stringify(pyrightChangesPath)};`,
     "let buffer = Buffer.alloc(0);",
     "let openedText = '';",
     "let answeredServerRequest = false;",
+    "function increment(file) {",
+    "  let value = 0;",
+    "  try { value = Number(fs.readFileSync(file, 'utf8')) || 0; } catch {}",
+    "  fs.writeFileSync(file, String(value + 1));",
+    "}",
     "function write(msg) {",
     "  const body = JSON.stringify(msg);",
     "  process.stdout.write(`Content-Length: ${Buffer.byteLength(body)}\\r\\n\\r\\n${body}`);",
@@ -64,6 +103,11 @@ fs.writeFileSync(
     "  }",
     "  if (msg.method === 'textDocument/didOpen') {",
     "    openedText = msg.params.textDocument.text;",
+    "    return;",
+    "  }",
+    "  if (msg.method === 'textDocument/didChange') {",
+    "    openedText = msg.params.contentChanges[0].text;",
+    "    increment(changesPath);",
     "    return;",
     "  }",
     "  if (msg.method === 'textDocument/hover') {",
@@ -162,6 +206,14 @@ proxy.stdout.on("data", (chunk) => {
   }
 });
 
+function readCount(file) {
+  try {
+    return Number(fs.readFileSync(file, "utf8")) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 try {
   const init = await request("initialize", {
     processId: null,
@@ -178,6 +230,7 @@ try {
   }
 
   write({ jsonrpc: "2.0", method: "initialized", params: {} });
+  const fencedText = "@x():\n  = ```\n  foo = 1\n  foo\n  ```\n";
   write({
     jsonrpc: "2.0",
     method: "textDocument/didOpen",
@@ -186,7 +239,7 @@ try {
         uri: "file:///tmp/test.kedi",
         languageId: "kedi",
         version: 1,
-        text: "@x():\n  = ```\n  foo = 1\n  foo\n  ```\n",
+        text: fencedText,
       },
     },
   });
@@ -197,6 +250,54 @@ try {
   });
   if (hover.contents.value !== "py-hover") {
     throw new Error("Hover forwarding failed");
+  }
+  if (readCount(virtualizerStartsPath) !== 1) {
+    throw new Error("Persistent virtualizer should stay alive after initial sync");
+  }
+
+  const requestsAfterFirstHover = readCount(virtualizerRequestsPath);
+  const changesAfterFirstHover = readCount(pyrightChangesPath);
+  write({
+    jsonrpc: "2.0",
+    method: "textDocument/didChange",
+    params: {
+      textDocument: { uri: "file:///tmp/test.kedi", version: 2 },
+      contentChanges: [{ text: fencedText }],
+    },
+  });
+
+  const cachedHover = await request("textDocument/hover", {
+    textDocument: { uri: "file:///tmp/test.kedi" },
+    position: { line: 3, character: 3 },
+  });
+  if (cachedHover.contents.value !== "py-hover") {
+    throw new Error("Cached hover forwarding failed");
+  }
+  if (readCount(virtualizerRequestsPath) !== requestsAfterFirstHover) {
+    throw new Error("Same-source virtual document cache missed");
+  }
+  if (readCount(pyrightChangesPath) !== changesAfterFirstHover) {
+    throw new Error("Unchanged virtual document should not be resent to Pyright");
+  }
+
+  write({
+    jsonrpc: "2.0",
+    method: "textDocument/didChange",
+    params: {
+      textDocument: { uri: "file:///tmp/test.kedi", version: 3 },
+      contentChanges: [{ text: "@x():\n  = ```\n  foo = 1\n  foo\n  # crash_once\n  ```\n" }],
+    },
+  });
+
+  const restartedHover = await request("textDocument/hover", {
+    textDocument: { uri: "file:///tmp/test.kedi" },
+    position: { line: 3, character: 3 },
+  });
+  if (restartedHover.contents.value !== "py-hover") {
+    throw new Error("Hover forwarding failed after virtualizer restart");
+  }
+  if (readCount(virtualizerStartsPath) !== 2) {
+    throw new Error("Persistent virtualizer should restart after a failed request");
   }
 
   write({
