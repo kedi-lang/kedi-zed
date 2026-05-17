@@ -3,7 +3,7 @@ name = "Kedi"
 version = "0.2.0"
 schema_version = 1
 authors = ["Mert <mert@kedi-lang.org>"]
-description = "Kedi language support for Zed via Tree-sitter queries and kedi-lsp."
+description = "Kedi language support for Zed via Tree-sitter queries and Kedi LSP."
 repository = "https://github.com/kedi-lang/kedi-zed"
 snippets = ["./snippets/kedi.json"]
 
