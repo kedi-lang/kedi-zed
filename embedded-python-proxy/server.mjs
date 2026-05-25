@@ -8,6 +8,7 @@ const virtualizerArgs = parseVirtualizerArgs(process.env.KEDI_PYTHON_VIRTUALIZER
 const VIRTUALIZER_TIMEOUT_MS = 5000;
 const DOCUMENT_SYNC_DEBOUNCE_MS = 75;
 const VIRTUAL_DOC_CACHE_LIMIT = 32;
+const BACKGROUND_FOCUS_LINE = -1;
 
 if (!pyrightEntrypoint) {
   process.stderr.write("Missing pyright entrypoint argument.\n");
@@ -44,7 +45,7 @@ const virtualDocCache = new Map();
 
 function parseVirtualizerArgs(raw) {
   if (!raw) {
-    return ["-c", "from kedi.lsp.python_virtual import main; main()"];
+    return ["-c", "from kedi.lsp.python_virtual import main_loop; main_loop()"];
   }
   try {
     const parsed = JSON.parse(raw);
@@ -64,13 +65,13 @@ function debug(...args) {
   process.stderr.write(`[kedi-embedded-python] ${args.join(" ")}\n`);
 }
 
-function sourceCacheKey(uri, text) {
+function sourceCacheKey(uri, text, focusLine = null) {
   const hash = createHash("sha1").update(text).digest("hex");
-  return `${uri}\0${hash}`;
+  return `${uri}\0${focusLine ?? "all"}\0${hash}`;
 }
 
-function getCachedVirtualDoc(uri, text) {
-  const key = sourceCacheKey(uri, text);
+function getCachedVirtualDoc(uri, text, focusLine = null) {
+  const key = sourceCacheKey(uri, text, focusLine);
   const cached = virtualDocCache.get(key);
   if (!cached) {
     return null;
@@ -80,8 +81,8 @@ function getCachedVirtualDoc(uri, text) {
   return cached;
 }
 
-function rememberVirtualDoc(uri, text, virtualDoc) {
-  const key = sourceCacheKey(uri, text);
+function rememberVirtualDoc(uri, text, focusLine, virtualDoc) {
+  const key = sourceCacheKey(uri, text, focusLine);
   if (virtualDocCache.has(key)) {
     virtualDocCache.delete(key);
   }
@@ -203,7 +204,7 @@ function handleVirtualizerData(chunk) {
   }
 }
 
-function requestPersistentVirtualDocument(uri, text) {
+function requestPersistentVirtualDocument(uri, text, focusLine = null) {
   const child = ensureVirtualizer();
   const id = nextVirtualizerId++;
   return new Promise((resolve, reject) => {
@@ -214,7 +215,7 @@ function requestPersistentVirtualDocument(uri, text) {
       rejectPendingVirtualizerRequests(new Error("virtualizer stopped after timeout"));
     }, VIRTUALIZER_TIMEOUT_MS);
     pendingVirtualizerRequests.set(id, { resolve, reject, timeout });
-    child.stdin.write(`${JSON.stringify({ id, uri, text })}\n`);
+    child.stdin.write(`${JSON.stringify({ id, uri, text, focusLine })}\n`);
   });
 }
 
@@ -529,27 +530,27 @@ function fallbackMappings(ranges) {
   return mappings;
 }
 
-async function computeScopeAwareVirtualDocument(uri, text) {
-  const cached = getCachedVirtualDoc(uri, text);
+async function computeScopeAwareVirtualDocument(uri, text, focusLine = null) {
+  const cached = getCachedVirtualDoc(uri, text, focusLine);
   if (cached) {
     return cached;
   }
 
   try {
-    const payload = await requestPersistentVirtualDocument(uri, text);
+    const payload = await requestPersistentVirtualDocument(uri, text, focusLine);
     const virtualDoc = normalizeVirtualPayload(payload);
     if (virtualDoc) {
-      rememberVirtualDoc(uri, text, virtualDoc);
+      rememberVirtualDoc(uri, text, focusLine, virtualDoc);
       return virtualDoc;
     }
   } catch (error) {
     debug("persistent virtualizer failed", String(error));
     stopVirtualizer();
     try {
-      const payload = await requestPersistentVirtualDocument(uri, text);
+      const payload = await requestPersistentVirtualDocument(uri, text, focusLine);
       const virtualDoc = normalizeVirtualPayload(payload);
       if (virtualDoc) {
-        rememberVirtualDoc(uri, text, virtualDoc);
+        rememberVirtualDoc(uri, text, focusLine, virtualDoc);
         return virtualDoc;
       }
     } catch (retryError) {
@@ -557,7 +558,7 @@ async function computeScopeAwareVirtualDocument(uri, text) {
     }
   }
 
-  const input = JSON.stringify({ text, uri });
+  const input = JSON.stringify({ text, uri, focusLine });
   const result = spawnSync(virtualizerCommand, virtualizerArgs, {
     input,
     encoding: "utf8",
@@ -577,7 +578,7 @@ async function computeScopeAwareVirtualDocument(uri, text) {
       payload.ok && payload.result ? payload.result : payload,
     );
     if (virtualDoc) {
-      rememberVirtualDoc(uri, text, virtualDoc);
+      rememberVirtualDoc(uri, text, focusLine, virtualDoc);
       return virtualDoc;
     }
   } catch (error) {
@@ -597,8 +598,8 @@ function warnVirtualizerFallback(status, stderr) {
   );
 }
 
-async function buildPythonDocument(uri, text) {
-  const scopeAware = await computeScopeAwareVirtualDocument(uri, text);
+async function buildPythonDocument(uri, text, focusLine = null) {
+  const scopeAware = await computeScopeAwareVirtualDocument(uri, text, focusLine);
   if (scopeAware) {
     return scopeAware;
   }
@@ -626,9 +627,9 @@ function isDocumentCurrent(uri, token) {
   return latestDocumentTokens.get(uri) === token;
 }
 
-async function syncDocumentToPyright(uri, text, version, token) {
+async function syncDocumentToPyright(uri, text, version, token, focusLine = null) {
   const virtualUri = createVirtualUri(uri);
-  const virtualDoc = await buildPythonDocument(uri, text);
+  const virtualDoc = await buildPythonDocument(uri, text, focusLine);
   if (!isDocumentCurrent(uri, token)) {
     return;
   }
@@ -643,6 +644,7 @@ async function syncDocumentToPyright(uri, text, version, token) {
     mappings: virtualDoc.mappings,
     symbols: virtualDoc.symbols,
     blankedText: virtualDoc.text,
+    focusLine,
   });
   debug("sync", uri, "as", virtualUri, "ranges", JSON.stringify(virtualDoc.ranges.map((range) => range.range)));
 
@@ -675,11 +677,11 @@ async function syncDocumentToPyright(uri, text, version, token) {
   });
 }
 
-function runDocumentSync(uri, text, version, token) {
+function runDocumentSync(uri, text, version, token, focusLine = BACKGROUND_FOCUS_LINE) {
   const previousSync = activeDocumentSyncs.get(uri) ?? Promise.resolve();
   const sync = previousSync
     .catch(() => {})
-    .then(() => syncDocumentToPyright(uri, text, version, token))
+    .then(() => syncDocumentToPyright(uri, text, version, token, focusLine))
     .catch((error) => {
       process.stderr.write(`[kedi-embedded-python] sync failed for ${uri}: ${error}\n`);
     });
@@ -692,7 +694,7 @@ function runDocumentSync(uri, text, version, token) {
   return sync;
 }
 
-function scheduleDocumentSync(uri, text, version, token) {
+function scheduleDocumentSync(uri, text, version, token, focusLine = BACKGROUND_FOCUS_LINE) {
   const pending = pendingDocumentSyncs.get(uri);
   if (pending) {
     clearTimeout(pending.timer);
@@ -701,10 +703,10 @@ function scheduleDocumentSync(uri, text, version, token) {
     const latest = pendingDocumentSyncs.get(uri);
     pendingDocumentSyncs.delete(uri);
     if (latest) {
-      runDocumentSync(uri, latest.text, latest.version, latest.token);
+      runDocumentSync(uri, latest.text, latest.version, latest.token, latest.focusLine);
     }
   }, DOCUMENT_SYNC_DEBOUNCE_MS);
-  pendingDocumentSyncs.set(uri, { text, version, token, timer });
+  pendingDocumentSyncs.set(uri, { text, version, token, focusLine, timer });
 }
 
 async function flushDocumentSync(uri) {
@@ -712,13 +714,39 @@ async function flushDocumentSync(uri) {
   if (pending) {
     clearTimeout(pending.timer);
     pendingDocumentSyncs.delete(uri);
-    await runDocumentSync(uri, pending.text, pending.version, pending.token);
+    await runDocumentSync(uri, pending.text, pending.version, pending.token, pending.focusLine);
     return;
   }
   const active = activeDocumentSyncs.get(uri);
   if (active) {
     await active;
   }
+}
+
+async function documentForPosition(uri, position) {
+  await flushDocumentSync(uri);
+  let doc = docs.get(uri);
+  if (!doc || !position) {
+    return { doc: null, activeRange: null };
+  }
+
+  let activeRange = doc.ranges.find((range) => isPositionInRange(position, range.range));
+  if (activeRange) {
+    return { doc, activeRange };
+  }
+
+  const rawActiveRange = extractPythonRanges(doc.text).find((range) =>
+    isPositionInRange(position, range.range),
+  );
+  if (!rawActiveRange) {
+    return { doc, activeRange: null };
+  }
+
+  const token = markDocumentCurrent(uri);
+  await runDocumentSync(uri, doc.text, doc.version, token, position.line);
+  doc = docs.get(uri);
+  activeRange = doc?.ranges.find((range) => isPositionInRange(position, range.range)) ?? null;
+  return { doc: doc ?? null, activeRange };
 }
 
 function cancelPendingDocumentSync(uri) {
@@ -985,8 +1013,7 @@ async function handleClientRequest(message) {
     case "textDocument/references": {
       const uri = message.params?.textDocument?.uri;
       const position = message.params?.position;
-      await flushDocumentSync(uri);
-      const doc = docs.get(uri);
+      const { doc, activeRange } = await documentForPosition(uri, position);
       if (!doc || !position) {
         sendToClient({
           jsonrpc: "2.0",
@@ -996,7 +1023,6 @@ async function handleClientRequest(message) {
         return;
       }
 
-      const activeRange = doc.ranges.find((range) => isPositionInRange(position, range.range));
       if (!activeRange) {
         sendToClient({
           jsonrpc: "2.0",
