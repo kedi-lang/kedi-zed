@@ -1,5 +1,8 @@
 (line_comment) @comment
 (block_comment) @comment
+(procedure_def
+  body: (block
+    . (block_comment) @variable))
 
 (procedure_def
   name: (identifier) @function)
