@@ -64,8 +64,6 @@
 (python_inline_body) @embedded
 
 [
-  "import"
-  "export"
   "auto"
   "optimize"
   "case"
@@ -73,6 +71,11 @@
   "test_data"
   "metric"
 ] @keyword
+
+[
+  "import"
+  "export"
+] @operator
 
 [
   "="
