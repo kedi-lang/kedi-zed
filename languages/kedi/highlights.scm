@@ -10,6 +10,12 @@
 (type_def
   name: (identifier) @type)
 
+(module_import
+  module: (identifier) @namespace)
+
+(module_export_name
+  name: (identifier) @variable)
+
 (param
   name: (identifier) @variable.parameter)
 
@@ -58,6 +64,8 @@
 (python_inline_body) @embedded
 
 [
+  "import"
+  "export"
   "auto"
   "optimize"
   "case"
