@@ -35,8 +35,7 @@ The extension resolves the language server in this order:
 
 1. `lsp.kedi-lsp.binary.path`
 2. `kedi-lsp` on `PATH`
-3. `python3 -m kedi.lsp.server`
-4. `python -m kedi.lsp.server`
+3. `python -m kedi.lsp.server` as a fallback
 
 The embedded-Python proxy auto-installs `pyright` through Zed's npm package support and runs it behind a Kedi-aware LSP proxy.
 For scope-aware Python interop, it reuses the Python interpreter from the configured `kedi-lsp` script when possible, so the virtualizer imports the same installed `kedi` package as the main language server.
