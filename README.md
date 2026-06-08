@@ -40,6 +40,17 @@ The extension resolves the language server in this order:
 The embedded-Python proxy auto-installs `pyright` through Zed's npm package support and runs it behind a Kedi-aware LSP proxy.
 For scope-aware Python interop, it reuses the Python interpreter from the configured `kedi-lsp` script when possible, so the virtualizer imports the same installed `kedi` package as the main language server.
 
+### Process capability scope
+
+`extension.toml` requests `process:exec` with `command = "*"` because the extension
+does not launch one fixed binary. It can start a user-configured
+`lsp.kedi-lsp.binary.path`, a `kedi-lsp` found on `PATH`, a `python` fallback for
+`python -m kedi.lsp.server`, and Zed's Node binary for the embedded-Python proxy.
+Narrowing the manifest to one command would break valid user configurations.
+
+Users who need a stricter local policy can restrict `process:exec` through Zed's
+`granted_extension_capabilities` setting for their own environment.
+
 For normal extension installs from Zed's extension registry, users download the packaged extension and do not need Rust installed.
 
 For local dev-extension installs, Zed compiles the extension on the local machine and requires Rust to be installed via `rustup`. A Homebrew-only `cargo` / `rustc` setup will fail to compile Rust extensions during `Install Dev Extension`. This repository declares the required `wasm32-wasip1` target in `rust-toolchain.toml` for `rustup` users.
