@@ -50,6 +50,18 @@
 (optimize_directive
   name: (identifier) @label)
 
+(profile_directive
+  name: (identifier) @label)
+
+(use_directive
+  name: (identifier) @label)
+
+(model_directive
+  value: (model_plain_value) @text.literal)
+
+(model_directive
+  value: (inline_python_expr) @embedded)
+
 (input_segment
   name: (identifier) @variable)
 
@@ -69,6 +81,9 @@
 [
   "auto"
   "optimize"
+  "model"
+  "profile"
+  "use"
   "case"
   "data"
   "test_data"
