@@ -63,6 +63,9 @@
 (python_code) @embedded
 (python_inline_body) @embedded
 
+(template_block_stmt
+  ">>" @keyword)
+
 [
   "auto"
   "optimize"
