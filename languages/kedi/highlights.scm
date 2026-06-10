@@ -62,6 +62,12 @@
 (model_directive
   value: (inline_python_expr) @embedded)
 
+(system_directive
+  value: (model_plain_value) @text.literal)
+
+(system_directive
+  value: (inline_python_expr) @embedded)
+
 (input_segment
   name: (identifier) @variable)
 
@@ -82,6 +88,7 @@
   "auto"
   "optimize"
   "model"
+  "system"
   "profile"
   "use"
   "case"
