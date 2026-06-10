@@ -4,8 +4,8 @@ use std::{
 };
 
 use zed_extension_api::{
-    self as zed, LanguageServerId, Result, node_binary_path, process::Command,
-    settings::LspSettings,
+    self as zed, node_binary_path, process::Command, settings::LspSettings, LanguageServerId,
+    Result,
 };
 
 const KEDI_LSP_ID: &str = "kedi-lsp";
@@ -66,7 +66,19 @@ impl KediExtension {
             .ok()
             .and_then(|settings| settings.binary)
             .and_then(|binary| binary.path)
+            .or_else(|| Self::workspace_kedi_lsp_path(worktree))
             .or_else(|| worktree.which(KEDI_LSP_ID))
+    }
+
+    fn workspace_kedi_lsp_path(worktree: &zed::Worktree) -> Option<String> {
+        [
+            ".venv/bin/kedi-lsp",
+            "venv/bin/kedi-lsp",
+            ".venv/Scripts/kedi-lsp.exe",
+            "venv/Scripts/kedi-lsp.exe",
+        ]
+        .into_iter()
+        .find_map(|candidate| worktree.which(candidate))
     }
 
     fn python_from_shebang(path: &str, worktree: &zed::Worktree) -> Option<String> {
@@ -189,24 +201,24 @@ impl KediExtension {
             }
         }
 
+        if let Some(path) = Self::workspace_kedi_lsp_path(worktree) {
+            return Ok(Command::new(path).envs(shell_env.clone()));
+        }
+
         if let Some(path) = worktree.which(KEDI_LSP_ID) {
             return Ok(Command::new(path).envs(shell_env.clone()));
         }
 
         if let Some(path) = worktree.which("python3") {
-            return Ok(
-                Command::new(path)
-                    .envs(shell_env.clone())
-                    .args(["-m", "kedi.lsp.server"]),
-            );
+            return Ok(Command::new(path)
+                .envs(shell_env.clone())
+                .args(["-m", "kedi.lsp.server"]));
         }
 
         if let Some(path) = worktree.which("python") {
-            return Ok(
-                Command::new(path)
-                    .envs(shell_env)
-                    .args(["-m", "kedi.lsp.server"]),
-            );
+            return Ok(Command::new(path)
+                .envs(shell_env)
+                .args(["-m", "kedi.lsp.server"]));
         }
 
         Err(

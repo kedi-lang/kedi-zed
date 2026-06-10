@@ -34,8 +34,10 @@ Select the Zed extension directory (`kedi-zed`), not the `tree-sitter-kedi` gram
 The extension resolves the language server in this order:
 
 1. `lsp.kedi-lsp.binary.path`
-2. `kedi-lsp` on `PATH`
-3. `python -m kedi.lsp.server` as a fallback
+2. Workspace-local `.venv/bin/kedi-lsp` or `venv/bin/kedi-lsp` (Windows
+   `Scripts/kedi-lsp.exe` is also checked)
+3. `kedi-lsp` on `PATH`
+4. `python -m kedi.lsp.server` as a fallback
 
 The embedded-Python proxy auto-installs `pyright` through Zed's npm package support and runs it behind a Kedi-aware LSP proxy.
 For scope-aware Python interop, it reuses the Python interpreter from the configured `kedi-lsp` script when possible, so the virtualizer imports the same installed `kedi` package as the main language server.
@@ -44,8 +46,9 @@ For scope-aware Python interop, it reuses the Python interpreter from the config
 
 `extension.toml` requests `process:exec` with `command = "*"` because the extension
 does not launch one fixed binary. It can start a user-configured
-`lsp.kedi-lsp.binary.path`, a `kedi-lsp` found on `PATH`, a `python` fallback for
-`python -m kedi.lsp.server`, and Zed's Node binary for the embedded-Python proxy.
+`lsp.kedi-lsp.binary.path`, a workspace-local `kedi-lsp`, a `kedi-lsp` found on
+`PATH`, a `python` fallback for `python -m kedi.lsp.server`, and Zed's Node
+binary for the embedded-Python proxy.
 Narrowing the manifest to one command would break valid user configurations.
 
 Users who need a stricter local policy can restrict `process:exec` through Zed's
