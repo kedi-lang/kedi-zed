@@ -28,4 +28,4 @@ languages = ["Kedi"]
 
 [grammars.kedi]
 repository = "https://github.com/kedi-lang/tree-sitter-kedi"
-rev = "b0fdabeb5271f8958ecfc5e388e3bb98bb0ef8ce"
+rev = "ce4b3e944c91e3160942ce7897d2ac030ac1031c"
