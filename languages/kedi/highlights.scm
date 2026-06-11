@@ -62,6 +62,12 @@
 (model_directive
   value: (inline_python_expr) @embedded)
 
+(effort_directive
+  value: (effort_plain_value) @text.literal)
+
+(effort_directive
+  value: (inline_python_expr) @embedded)
+
 (input_segment
   name: (identifier) @variable)
 
@@ -84,6 +90,7 @@
   "auto"
   "optimize"
   "model"
+  "effort"
   "system"
   "profile"
   "use"
