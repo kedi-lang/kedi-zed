@@ -56,6 +56,9 @@
 (use_directive
   name: (identifier) @label)
 
+(mcp_field
+  name: (identifier) @property)
+
 (model_directive
   value: (model_plain_value) @text.literal)
 
@@ -66,6 +69,12 @@
   value: (effort_plain_value) @text.literal)
 
 (effort_directive
+  value: (inline_python_expr) @embedded)
+
+(mcp_field
+  value: (mcp_plain_value) @text.literal)
+
+(mcp_field
   value: (inline_python_expr) @embedded)
 
 (input_segment
@@ -92,6 +101,7 @@
   "model"
   "effort"
   "system"
+  "mcp"
   "profile"
   "use"
   "case"
