@@ -59,6 +59,9 @@
 (mcp_field
   name: (identifier) @property)
 
+(settings_field
+  name: (identifier) @property)
+
 (model_directive
   value: (model_plain_value) @text.literal)
 
@@ -75,6 +78,12 @@
   value: (mcp_plain_value) @text.literal)
 
 (mcp_field
+  value: (inline_python_expr) @embedded)
+
+(settings_field
+  value: (settings_plain_value) @text.literal)
+
+(settings_field
   value: (inline_python_expr) @embedded)
 
 (input_segment
@@ -102,6 +111,7 @@
   "effort"
   "system"
   "mcp"
+  "settings"
   "profile"
   "use"
   "case"
