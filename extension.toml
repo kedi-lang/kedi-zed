@@ -26,6 +26,13 @@ languages = ["Kedi"]
 [language_servers.kedi-embedded-python.language_ids]
 "Kedi" = "kedi"
 
+[language_servers.kedi-python-docstrings]
+name = "kedi-python-docstrings"
+languages = ["Python"]
+
+[language_servers.kedi-python-docstrings.language_ids]
+"Python" = "python"
+
 [grammars.kedi]
 repository = "https://github.com/kedi-lang/tree-sitter-kedi"
 rev = "fea96b181800dd3a38febd8f63ea62357e19e9ac"

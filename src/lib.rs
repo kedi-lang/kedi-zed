@@ -10,6 +10,7 @@ use zed_extension_api::{
 
 const KEDI_LSP_ID: &str = "kedi-lsp";
 const EMBEDDED_PYTHON_LSP_ID: &str = "kedi-embedded-python";
+const KEDI_PYTHON_DOCSTRINGS_LSP_ID: &str = "kedi-python-docstrings";
 const PYRIGHT_PACKAGE_NAME: &str = "pyright";
 const EMBEDDED_PYTHON_PROXY_SOURCE: &str = include_str!("../embedded-python-proxy/server.mjs");
 const EMBEDDED_PYTHON_PROXY_ENV: &str = "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE";
@@ -283,6 +284,7 @@ impl zed::Extension for KediExtension {
         match language_server_id.as_ref() {
             KEDI_LSP_ID => self.kedi_lsp_command(worktree),
             EMBEDDED_PYTHON_LSP_ID => self.embedded_python_command(language_server_id, worktree),
+            KEDI_PYTHON_DOCSTRINGS_LSP_ID => self.kedi_lsp_command(worktree),
             id => Err(format!("Unsupported language server id: {id}")),
         }
     }
