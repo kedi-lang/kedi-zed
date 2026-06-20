@@ -68,6 +68,9 @@ Recommended settings:
       "formatter": "language_server",
       "format_on_save": "on",
       "semantic_tokens": "combined"
+    },
+    "Python": {
+      "semantic_tokens": "combined"
     }
   }
 }
@@ -88,4 +91,4 @@ Language server override example:
 }
 ```
 
-Embedded Python regions are injected as Python for syntax highlighting. Use `semantic_tokens: "combined"` if you want Kedi tree-sitter highlighting plus LSP semantic tokens together.
+Embedded Python regions are injected as Python for syntax highlighting. Use `semantic_tokens: "combined"` for Kedi if you want Kedi tree-sitter highlighting plus LSP semantic tokens together. Use it for Python too if you want Kedi semantic tokens inside Python `kedi` docstrings.
