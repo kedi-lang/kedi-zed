@@ -47,6 +47,22 @@ fs.writeFileSync(
     "      symbols: []",
     "    };",
     "  }",
+    "  if (text.includes('focus_existing_range')) {",
+    "    if (focusLine === -1) {",
+    "      return {",
+    "        text: 'from typing import Any\\n\\nlimit: Any = ...\\nlimit\\n',",
+    "        ranges: [{ kind: 'fenced', range: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, sourceRange: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, virtualRange: { start: { line: 2, character: 0 }, end: { line: 3, character: 5 } }, text: 'focus_existing_range\\nlimit' }],",
+    "        mappings: [{ kind: 'fenced', sourceRange: { start: { line: 3, character: 2 }, end: { line: 3, character: 7 } }, virtualRange: { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } } }],",
+    "        symbols: []",
+    "      };",
+    "    }",
+    "    return {",
+    "      text: 'from typing import Any\\n\\ndef __kedi_scope_x(limit: int) -> str:\\n    limit\\n',",
+    "      ranges: [{ kind: 'fenced', range: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, sourceRange: { start: { line: 2, character: 0 }, end: { line: 4, character: 0 } }, virtualRange: { start: { line: 3, character: 4 }, end: { line: 3, character: 9 } }, text: 'focus_existing_range\\nlimit' }],",
+    "      mappings: [{ kind: 'fenced', sourceRange: { start: { line: 3, character: 2 }, end: { line: 3, character: 7 } }, virtualRange: { start: { line: 3, character: 4 }, end: { line: 3, character: 9 } } }],",
+    "      symbols: []",
+    "    };",
+    "  }",
     "function resultForDefault(text) {",
     "  if (text.includes('foo = 1')) {",
     "    return {",
@@ -137,7 +153,7 @@ fs.writeFileSync(
     "  }",
     "  if (msg.method === 'textDocument/hover') {",
     "    const pos = msg.params.position;",
-    "    const ok = (openedText.includes('def __kedi_scope_x') || openedText.includes('def __kedi_module_scope')) && openedText.includes('foo') && answeredServerRequest && ((pos.line === 5 && pos.character === 9) || (pos.line === 4 && pos.character === 4));",
+    "    const ok = (openedText.includes('def __kedi_scope_x') || openedText.includes('def __kedi_module_scope')) && (openedText.includes('foo') || openedText.includes('limit: int')) && answeredServerRequest && ((pos.line === 5 && pos.character === 9) || (pos.line === 4 && pos.character === 4) || (pos.line === 3 && pos.character === 5));",
     "    write({ jsonrpc: '2.0', id: msg.id, result: { contents: { kind: 'plaintext', value: ok ? 'py-hover' : openedText } } });",
     "    return;",
     "  }",
@@ -286,6 +302,31 @@ try {
   }
   if (readCount(virtualizerStartsPath) !== 1) {
     throw new Error("Persistent virtualizer should stay alive after initial sync");
+  }
+
+  write({
+    jsonrpc: "2.0",
+    method: "textDocument/didOpen",
+    params: {
+      textDocument: {
+        uri: "file:///tmp/test-focused-range.kedi",
+        languageId: "kedi",
+        version: 1,
+        text: "@x(limit: int):\n  = ```\n  focus_existing_range\n  limit\n  ```\n",
+      },
+    },
+  });
+
+  const focusedRangeHover = await request("textDocument/hover", {
+    textDocument: { uri: "file:///tmp/test-focused-range.kedi" },
+    position: { line: 3, character: 3 },
+  });
+  if (focusedRangeHover.contents.value !== "py-hover") {
+    throw new Error("Existing background range should be rebuilt for focused hover");
+  }
+  const focusedRangeRequests = readLines(virtualizerFocusPath);
+  if (!focusedRangeRequests.includes("-1") || !focusedRangeRequests.includes("3")) {
+    throw new Error("Proxy should replace a background range with its focused virtual document");
   }
 
   const requestsAfterFirstHover = readCount(virtualizerRequestsPath);

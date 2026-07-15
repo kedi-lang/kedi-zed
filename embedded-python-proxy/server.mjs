@@ -730,11 +730,6 @@ async function documentForPosition(uri, position) {
     return { doc: null, activeRange: null };
   }
 
-  let activeRange = doc.ranges.find((range) => isPositionInRange(position, range.range));
-  if (activeRange) {
-    return { doc, activeRange };
-  }
-
   const rawActiveRange = extractPythonRanges(doc.text).find((range) =>
     isPositionInRange(position, range.range),
   );
@@ -742,10 +737,14 @@ async function documentForPosition(uri, position) {
     return { doc, activeRange: null };
   }
 
-  const token = markDocumentCurrent(uri);
-  await runDocumentSync(uri, doc.text, doc.version, token, position.line);
-  doc = docs.get(uri);
-  activeRange = doc?.ranges.find((range) => isPositionInRange(position, range.range)) ?? null;
+  if (doc.focusLine !== position.line) {
+    const token = markDocumentCurrent(uri);
+    await runDocumentSync(uri, doc.text, doc.version, token, position.line);
+    doc = docs.get(uri);
+  }
+
+  const activeRange =
+    doc?.ranges.find((range) => isPositionInRange(position, range.range)) ?? null;
   return { doc: doc ?? null, activeRange };
 }
 

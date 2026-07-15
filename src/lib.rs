@@ -72,6 +72,7 @@ impl KediExtension {
     }
 
     fn workspace_kedi_lsp_path(worktree: &zed::Worktree) -> Option<String> {
+        let root = PathBuf::from(worktree.root_path());
         [
             ".venv/bin/kedi-lsp",
             "venv/bin/kedi-lsp",
@@ -79,11 +80,19 @@ impl KediExtension {
             "venv/Scripts/kedi-lsp.exe",
         ]
         .into_iter()
-        .find_map(|candidate| worktree.which(candidate))
+        .find(|candidate| worktree.read_text_file(candidate).is_ok())
+        .map(|candidate| root.join(candidate).to_string_lossy().into_owned())
     }
 
     fn python_from_shebang(path: &str, worktree: &zed::Worktree) -> Option<String> {
-        let first_line = fs::read_to_string(path).ok()?.lines().next()?.to_string();
+        let root = PathBuf::from(worktree.root_path());
+        let worktree_source = Path::new(path)
+            .strip_prefix(&root)
+            .ok()
+            .and_then(|relative| relative.to_str())
+            .and_then(|relative| worktree.read_text_file(relative).ok());
+        let source = worktree_source.or_else(|| fs::read_to_string(path).ok())?;
+        let first_line = source.lines().next()?.to_string();
         let shebang = first_line.strip_prefix("#!")?.trim();
         let mut parts = shebang.split_whitespace();
         let program = parts.next()?;
