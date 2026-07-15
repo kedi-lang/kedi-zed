@@ -16,6 +16,9 @@
 (module_export_name
   name: (identifier) @variable)
 
+(assign_target
+  name: (identifier) @variable)
+
 (param
   name: (identifier) @variable.parameter)
 
@@ -55,6 +58,12 @@
 
 (use_directive
   name: (identifier) @label)
+
+(use_tool_name
+  name: (identifier) @function)
+
+(use_tool_backtick
+  name: (identifier) @function)
 
 (mcp_field
   name: (identifier) @property)
@@ -98,15 +107,39 @@
   name: (identifier) @variable)
 
 (text_segment) @text.literal
+(type_string) @text.literal
 (python_code) @embedded
 (python_inline_body) @embedded
+
+(agent_directive
+  value: (adapter_plain_value) @label)
+
+(agent_field
+  name: (identifier) @label)
+
+(agent_field
+  value: (agent_command_plain_value) @text.literal)
+
+(agent_field
+  value: (inline_python_expr) @embedded)
+
+(adapter_directive
+  value: (adapter_plain_value) @label)
+
+(adapter_directive
+  value: (inline_python_expr) @embedded)
 
 (template_block_stmt
   ">>" @keyword)
 
+(raw_invoke_stmt
+  "<<" @keyword)
+
 [
   "auto"
   "optimize"
+  "agent"
+  "adapter"
   "model"
   "effort"
   "system"
@@ -134,6 +167,7 @@
 [
   "@"
   "~"
+  "<"
   ">"
   "```"
   "`"
@@ -144,8 +178,6 @@
   ")"
   "["
   "]"
-  "<"
-  ">"
   ","
   ":"
 ] @punctuation.delimiter
