@@ -83,6 +83,12 @@
 (effort_directive
   value: (inline_python_expr) @embedded)
 
+(approval_directive
+  value: (approval_plain_value) @text.literal)
+
+(approval_directive
+  value: (inline_python_expr) @embedded)
+
 (mcp_field
   value: (mcp_plain_value) @text.literal)
 
@@ -142,6 +148,7 @@
   "adapter"
   "model"
   "effort"
+  "approval"
   "system"
   "mcp"
   "settings"
