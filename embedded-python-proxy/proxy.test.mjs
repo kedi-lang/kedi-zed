@@ -263,6 +263,13 @@ function readLines(file) {
   }
 }
 
+function assertPythonReturnHover(hover, label) {
+  const value = hover?.contents?.value ?? "";
+  if (!value.includes("py-hover") || !value.includes("Python return")) {
+    throw new Error(`${label}: expected Python symbol and Kedi return context, got ${value}`);
+  }
+}
+
 try {
   const init = await request("initialize", {
     processId: null,
@@ -297,9 +304,7 @@ try {
     textDocument: { uri: "file:///tmp/test.kedi" },
     position: { line: 3, character: 3 },
   });
-  if (hover.contents.value !== "py-hover") {
-    throw new Error("Hover forwarding failed");
-  }
+  assertPythonReturnHover(hover, "Hover forwarding failed");
   if (readCount(virtualizerStartsPath) !== 1) {
     throw new Error("Persistent virtualizer should stay alive after initial sync");
   }
@@ -321,9 +326,10 @@ try {
     textDocument: { uri: "file:///tmp/test-focused-range.kedi" },
     position: { line: 3, character: 3 },
   });
-  if (focusedRangeHover.contents.value !== "py-hover") {
-    throw new Error("Existing background range should be rebuilt for focused hover");
-  }
+  assertPythonReturnHover(
+    focusedRangeHover,
+    "Existing background range should be rebuilt for focused hover",
+  );
   const focusedRangeRequests = readLines(virtualizerFocusPath);
   if (!focusedRangeRequests.includes("-1") || !focusedRangeRequests.includes("3")) {
     throw new Error("Proxy should replace a background range with its focused virtual document");
@@ -344,9 +350,7 @@ try {
     textDocument: { uri: "file:///tmp/test.kedi" },
     position: { line: 3, character: 3 },
   });
-  if (cachedHover.contents.value !== "py-hover") {
-    throw new Error("Cached hover forwarding failed");
-  }
+  assertPythonReturnHover(cachedHover, "Cached hover forwarding failed");
   if (readCount(virtualizerRequestsPath) !== requestsAfterFirstHover) {
     throw new Error("Same-source virtual document cache missed");
   }
@@ -367,9 +371,10 @@ try {
     textDocument: { uri: "file:///tmp/test.kedi" },
     position: { line: 3, character: 3 },
   });
-  if (restartedHover.contents.value !== "py-hover") {
-    throw new Error("Hover forwarding failed after virtualizer restart");
-  }
+  assertPythonReturnHover(
+    restartedHover,
+    "Hover forwarding failed after virtualizer restart",
+  );
   if (readCount(virtualizerStartsPath) !== 2) {
     throw new Error("Persistent virtualizer should restart after a failed request");
   }

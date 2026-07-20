@@ -829,6 +829,59 @@ function mapVirtualRangeToSource(doc, range) {
   );
 }
 
+const PYTHON_RETURN_HOVER =
+  "**Python return**\n\nThe Python value becomes the procedure or program result without string rendering.";
+
+function pythonReturnContextAt(doc, position) {
+  if (!doc?.text || !position) {
+    return null;
+  }
+  const range = (doc.ranges ?? []).find((candidate) =>
+    isPositionInRange(position, candidate.range),
+  );
+  if (!range) {
+    return null;
+  }
+  const lines = doc.text.split(/\r?\n/);
+  if (range.kind === "inline") {
+    const line = lines[range.range.start.line] ?? "";
+    const prefix = line
+      .slice(0, range.range.start.character)
+      .replace(/`+\s*$/, "")
+      .trim();
+    return prefix === "=" ? PYTHON_RETURN_HOVER : null;
+  }
+  const openingLine = lines[range.range.start.line - 1]?.trim() ?? "";
+  return openingLine.startsWith("= ```") ? PYTHON_RETURN_HOVER : null;
+}
+
+function appendPythonContextToHover(result, context) {
+  if (!result || !context) {
+    return result;
+  }
+  const contextBlock = `\n\n---\n\n${context}`;
+  if (typeof result.contents === "string") {
+    return { ...result, contents: result.contents + contextBlock };
+  }
+  if (Array.isArray(result.contents)) {
+    return {
+      ...result,
+      contents: [...result.contents, { kind: "markdown", value: context }],
+    };
+  }
+  if (result.contents && typeof result.contents.value === "string") {
+    return {
+      ...result,
+      contents: {
+        ...result.contents,
+        kind: "markdown",
+        value: result.contents.value + contextBlock,
+      },
+    };
+  }
+  return result;
+}
+
 function virtualWordAtPosition(doc, position) {
   const line = (doc.blankedText ?? "").split(/\r?\n/)[position.line] ?? "";
   let index = position.character;
@@ -1046,6 +1099,7 @@ async function handleClientRequest(message) {
         clientId: message.id,
         method: message.method,
         docUri: uri,
+        sourcePosition: position,
         virtualPosition,
       });
 
@@ -1176,7 +1230,13 @@ function handlePyrightMessage(message) {
 
     if (pending.type === "clientRequest") {
       const doc = docs.get(pending.docUri);
-      const mappedResult = mapResult(message.result, doc);
+      let mappedResult = mapResult(message.result, doc);
+      if (pending.method === "textDocument/hover") {
+        mappedResult = appendPythonContextToHover(
+          mappedResult,
+          pythonReturnContextAt(doc, pending.sourcePosition),
+        );
+      }
       sendToClient({
         jsonrpc: "2.0",
         id: pending.clientId,
