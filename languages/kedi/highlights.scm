@@ -56,6 +56,12 @@
 (profile_directive
   name: (identifier) @label)
 
+(subagent_directive
+  name: (identifier) @label)
+
+(max_agents_directive
+  value: (positive_integer) @number)
+
 (use_directive
   name: (identifier) @label)
 
@@ -152,6 +158,8 @@
   "system"
   "mcp"
   "settings"
+  "subagent"
+  "max_agents"
   "profile"
   "use"
   "case"
