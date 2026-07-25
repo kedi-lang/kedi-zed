@@ -11,7 +11,10 @@
   name: (identifier) @type)
 
 (module_import
-  module: (identifier) @namespace)
+  module: (module_path) @namespace)
+
+(module_import_name
+  name: (identifier) @variable)
 
 (module_export_name
   name: (identifier) @variable)
