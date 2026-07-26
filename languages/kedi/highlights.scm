@@ -10,6 +10,21 @@
 (type_def
   name: (identifier) @type)
 
+(package_directive
+  name: (identifier) @namespace)
+
+(package_field
+  name: (identifier) @property)
+
+(package_field
+  value: (package_plain_value) @text.literal)
+
+(package_python_dependencies
+  "python_dependencies" @property)
+
+(package_dependency
+  value: (package_dependency_value) @text.literal)
+
 (module_import
   module: (module_path) @namespace)
 
@@ -175,6 +190,8 @@
   "import"
   "export"
 ] @operator
+
+"package" @keyword
 
 [
   "="
