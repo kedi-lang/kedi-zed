@@ -95,6 +95,9 @@
 (settings_field
   name: (identifier) @property)
 
+(artifacts_field
+  name: (identifier) @property)
+
 (model_directive
   value: (model_plain_value) @text.literal)
 
@@ -123,6 +126,12 @@
   value: (settings_plain_value) @text.literal)
 
 (settings_field
+  value: (inline_python_expr) @embedded)
+
+(artifacts_field
+  value: (artifacts_plain_value) @text.literal)
+
+(artifacts_field
   value: (inline_python_expr) @embedded)
 
 (input_segment
