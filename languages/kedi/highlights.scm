@@ -185,6 +185,7 @@
   "system"
   "mcp"
   "settings"
+  "artifacts"
   "subagent"
   "max_agents"
   "profile"
