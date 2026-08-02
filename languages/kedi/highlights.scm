@@ -80,6 +80,9 @@
 (max_agents_directive
   value: (positive_integer) @number)
 
+(workflow_directive
+  value: (identifier) @constant)
+
 (use_directive
   name: (identifier) @label)
 
@@ -188,6 +191,7 @@
   "artifacts"
   "subagent"
   "max_agents"
+  "workflow"
   "profile"
   "use"
   "case"
