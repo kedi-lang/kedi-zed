@@ -189,6 +189,7 @@
   "mcp"
   "settings"
   "artifacts"
+  "output"
   "subagent"
   "max_agents"
   "workflow"
