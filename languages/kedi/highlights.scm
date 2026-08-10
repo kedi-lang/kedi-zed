@@ -81,6 +81,7 @@
   value: (positive_integer) @number)
 
 (workflow_directive
+  "workflow" @keyword
   value: (identifier) @constant)
 
 (use_directive
@@ -96,6 +97,12 @@
   name: (identifier) @property)
 
 (settings_field
+  name: (identifier) @property)
+
+(compaction_settings
+  "compaction" @keyword)
+
+(compaction_settings_field
   name: (identifier) @property)
 
 (artifacts_field
@@ -129,6 +136,12 @@
   value: (settings_plain_value) @text.literal)
 
 (settings_field
+  value: (inline_python_expr) @embedded)
+
+(compaction_settings_field
+  value: (settings_plain_value) @text.literal)
+
+(compaction_settings_field
   value: (inline_python_expr) @embedded)
 
 (artifacts_field
