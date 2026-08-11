@@ -84,6 +84,10 @@
   "workflow" @keyword
   value: (identifier) @constant)
 
+(history_directive
+  "history" @keyword
+  value: (history_plain_value) @text.literal)
+
 (use_directive
   name: (identifier) @label)
 
@@ -198,6 +202,7 @@
   "model"
   "effort"
   "approval"
+  "history"
   "system"
   "mcp"
   "settings"
