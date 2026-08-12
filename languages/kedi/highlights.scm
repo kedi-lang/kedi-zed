@@ -88,6 +88,14 @@
   "history" @keyword
   value: (history_plain_value) @text.literal)
 
+(history_directive "history" @keyword)
+
+(history_field
+  name: (identifier) @property)
+
+(history_field
+  value: (settings_plain_value) @text.literal)
+
 (use_directive
   name: (identifier) @label)
 
