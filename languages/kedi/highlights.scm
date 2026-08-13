@@ -99,6 +99,22 @@
 (history_field
   value: (inline_python_expr) @embedded)
 
+(skills_directive
+  ">" @operator)
+
+(skills_directive "skills" @keyword)
+
+(skills_plain_value) @constant
+
+(skills_field
+  name: (identifier) @property)
+
+(skills_field
+  value: (settings_plain_value) @text.literal)
+
+(skills_field
+  value: (inline_python_expr) @embedded)
+
 (use_directive
   name: (identifier) @label)
 
