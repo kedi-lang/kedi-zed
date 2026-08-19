@@ -115,6 +115,22 @@
 (skills_field
   value: (inline_python_expr) @embedded)
 
+(codemode_directive
+  ">" @operator)
+
+(codemode_directive "codemode" @keyword)
+
+(codemode_plain_value) @constant
+
+(codemode_field
+  name: (identifier) @property)
+
+(codemode_field
+  value: (settings_plain_value) @text.literal)
+
+(codemode_field
+  value: (inline_python_expr) @embedded)
+
 (use_directive
   name: (identifier) @label)
 
@@ -217,6 +233,7 @@
   "model"
   "effort"
   "approval"
+  "codemode"
   "history"
   "system"
   "mcp"
