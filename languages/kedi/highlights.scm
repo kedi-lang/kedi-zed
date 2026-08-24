@@ -37,6 +37,9 @@
 (assign_target
   name: (identifier) @variable)
 
+(loop_stmt
+  binder: (identifier) @variable)
+
 (param
   name: (identifier) @variable.parameter)
 
@@ -197,6 +200,8 @@
   name: (identifier) @variable)
 
 (text_segment) @text.literal
+(condition_text_segment) @text.literal
+(condition_colon_segment) @text.literal
 (type_string) @text.literal
 (python_code) @embedded
 (python_inline_body) @embedded
@@ -249,6 +254,9 @@
   "data"
   "test_data"
   "metric"
+  "if"
+  "else"
+  "loop"
 ] @keyword
 
 [

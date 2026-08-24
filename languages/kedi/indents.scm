@@ -8,6 +8,10 @@
   (python_block)
   (assign_block_stmt)
   (return_block_stmt)
+  (if_stmt)
+  (else_clause)
+  (loop_stmt)
+  (conditional_loop_stmt)
 ] @indent
 
 [
