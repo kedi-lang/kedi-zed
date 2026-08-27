@@ -34,13 +34,13 @@
 (module_export_name
   name: (identifier) @variable)
 
-(assign_target
+(binding_target
   name: (identifier) @variable)
 
-(reassign_stmt
+(assignment_stmt
   name: (identifier) @variable)
 
-(reassign_block_stmt
+(assignment_block_stmt
   name: (identifier) @variable)
 
 (loop_stmt

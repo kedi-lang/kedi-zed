@@ -6,7 +6,7 @@
   (eval_test_data)
   (eval_metric)
   (python_block)
-  (assign_block_stmt)
+  (variable_init_block_stmt)
   (return_block_stmt)
   (if_stmt)
   (else_clause)
@@ -16,6 +16,6 @@
 
 [
   (python_block "```" "```" @end)
-  (assign_block_stmt "```" "```" @end)
+  (variable_init_block_stmt "```" "```" @end)
   (return_block_stmt "```" "```" @end)
 ]
