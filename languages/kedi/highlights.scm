@@ -37,6 +37,12 @@
 (assign_target
   name: (identifier) @variable)
 
+(reassign_stmt
+  name: (identifier) @variable)
+
+(reassign_block_stmt
+  name: (identifier) @variable)
+
 (loop_stmt
   binder: (identifier) @variable)
 
@@ -201,7 +207,6 @@
 
 (text_segment) @text.literal
 (condition_text_segment) @text.literal
-(condition_colon_segment) @text.literal
 (type_string) @text.literal
 (python_code) @embedded
 (python_inline_body) @embedded
@@ -257,6 +262,7 @@
   "if"
   "else"
   "loop"
+  "map"
 ] @keyword
 
 [
@@ -268,6 +274,7 @@
 
 [
   "="
+  ":="
   "->"
   "|"
 ] @operator
