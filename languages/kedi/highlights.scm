@@ -194,6 +194,11 @@
 (artifacts_field
   value: (inline_python_expr) @embedded)
 
+(artifacts_field
+  name: (identifier) @_query_artifacts
+  value: (artifacts_plain_value) @constant
+  (#eq? @_query_artifacts "query_artifacts"))
+
 (input_segment
   name: (identifier) @variable)
 
