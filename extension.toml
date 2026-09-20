@@ -1,6 +1,6 @@
 id = "kedi"
 name = "Kedi"
-version = "0.3.0"
+version = "0.4.0"
 schema_version = 1
 authors = ["Mert <mert@kedi-lang.org>"]
 description = "Kedi language support for Zed via Tree-sitter queries and Kedi LSP."

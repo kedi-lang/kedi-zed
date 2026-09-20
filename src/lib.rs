@@ -8,6 +8,8 @@ use zed_extension_api::{
     Result,
 };
 
+mod runtime;
+
 const KEDI_LSP_ID: &str = "kedi-lsp";
 const EMBEDDED_PYTHON_LSP_ID: &str = "kedi-embedded-python";
 const KEDI_PYTHON_DOCSTRINGS_LSP_ID: &str = "kedi-python-docstrings";
@@ -15,8 +17,6 @@ const PYRIGHT_PACKAGE_NAME: &str = "pyright";
 const EMBEDDED_PYTHON_PROXY_SOURCE: &str = include_str!("../embedded-python-proxy/server.mjs");
 const EMBEDDED_PYTHON_PROXY_ENV: &str = "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE";
 const EMBEDDED_PYTHON_PROXY_LOADER: &str = "await import(\"data:text/javascript;charset=utf-8,\" + encodeURIComponent(process.env.KEDI_EMBEDDED_PYTHON_PROXY_SOURCE))";
-const PYTHON_VIRTUALIZER_ARGS: &str =
-    "[\"-c\",\"from kedi.lsp.python_virtual import main_loop; main_loop()\"]";
 
 struct KediExtension {
     cached_pyright_entrypoint: Option<String>,
@@ -67,21 +67,6 @@ impl KediExtension {
             .ok()
             .and_then(|settings| settings.binary)
             .and_then(|binary| binary.path)
-            .or_else(|| Self::workspace_kedi_lsp_path(worktree))
-            .or_else(|| worktree.which(KEDI_LSP_ID))
-    }
-
-    fn workspace_kedi_lsp_path(worktree: &zed::Worktree) -> Option<String> {
-        let root = PathBuf::from(worktree.root_path());
-        [
-            ".venv/bin/kedi-lsp",
-            "venv/bin/kedi-lsp",
-            ".venv/Scripts/kedi-lsp.exe",
-            "venv/Scripts/kedi-lsp.exe",
-        ]
-        .into_iter()
-        .find(|candidate| worktree.read_text_file(candidate).is_ok())
-        .map(|candidate| root.join(candidate).to_string_lossy().into_owned())
     }
 
     fn python_from_shebang(path: &str, worktree: &zed::Worktree) -> Option<String> {
@@ -117,21 +102,23 @@ impl KediExtension {
             .is_some_and(|name| name.starts_with("python"))
     }
 
-    fn virtualizer_python(worktree: &zed::Worktree) -> String {
+    fn python_command(worktree: &zed::Worktree, id: &LanguageServerId) -> Result<Command> {
+        let settings = LspSettings::for_worktree(KEDI_LSP_ID, worktree)?;
+        if let Some(path) = runtime::configured_python(settings.settings.as_ref())? {
+            return Ok(Command::new(path).envs(worktree.shell_env()));
+        }
         if let Some(kedi_lsp_path) = Self::configured_kedi_lsp_path(worktree) {
             if Self::looks_like_python(&kedi_lsp_path) {
-                return kedi_lsp_path;
+                return Ok(Command::new(kedi_lsp_path).envs(worktree.shell_env()));
             }
             if let Some(interpreter) = Self::python_from_shebang(&kedi_lsp_path, worktree) {
-                return interpreter;
+                return Ok(Command::new(interpreter).envs(worktree.shell_env()));
             }
+            return Err("Set lsp.kedi-lsp.settings.python_path for the embedded Python helper when using a custom server executable.".into());
         }
-
-        worktree
-            .which("python3.11")
-            .or_else(|| worktree.which("python3"))
-            .or_else(|| worktree.which("python"))
-            .unwrap_or_else(|| "python3".to_string())
+        Ok(Command::new(runtime::managed_python(worktree, id)?)
+            .envs(worktree.shell_env())
+            .arg("-I"))
     }
 
     fn installed_pyright_version(&self) -> Option<String> {
@@ -194,7 +181,7 @@ impl KediExtension {
         Ok(entrypoint)
     }
 
-    fn kedi_lsp_command(&self, worktree: &zed::Worktree) -> Result<Command> {
+    fn kedi_lsp_command(&self, worktree: &zed::Worktree, id: &LanguageServerId) -> Result<Command> {
         let lsp_settings = LspSettings::for_worktree(KEDI_LSP_ID, worktree)?;
         let shell_env = worktree.shell_env();
 
@@ -211,29 +198,7 @@ impl KediExtension {
             }
         }
 
-        if let Some(path) = Self::workspace_kedi_lsp_path(worktree) {
-            return Ok(Command::new(path).envs(shell_env.clone()));
-        }
-
-        if let Some(path) = worktree.which(KEDI_LSP_ID) {
-            return Ok(Command::new(path).envs(shell_env.clone()));
-        }
-
-        if let Some(path) = worktree.which("python3") {
-            return Ok(Command::new(path)
-                .envs(shell_env.clone())
-                .args(["-m", "kedi.lsp.server"]));
-        }
-
-        if let Some(path) = worktree.which("python") {
-            return Ok(Command::new(path)
-                .envs(shell_env)
-                .args(["-m", "kedi.lsp.server"]));
-        }
-
-        Err(
-            "Could not find `kedi-lsp`, `python3`, or `python` on PATH. Configure `lsp.kedi-lsp.binary` in Zed settings.".into(),
-        )
+        Ok(Self::python_command(worktree, id)?.args(["-m", "kedi.lsp.server"]))
     }
 
     fn embedded_python_command(
@@ -256,13 +221,20 @@ impl KediExtension {
 
         let pyright_entrypoint = self.ensure_pyright(id, settings.package_version.as_deref())?;
         let node = node_binary_path()?;
-        let virtualizer_python = Self::virtualizer_python(worktree);
+        let python = Self::python_command(worktree, id)?;
+        let mut virtualizer_args = python.args;
+        virtualizer_args.extend([
+            "-c".into(),
+            "from kedi.lsp.python_virtual import main_loop; main_loop()".into(),
+        ]);
+        let virtualizer_args =
+            zed::serde_json::to_string(&virtualizer_args).map_err(|error| error.to_string())?;
 
         let mut command = Command::new(node)
             .envs(shell_env)
             .env(EMBEDDED_PYTHON_PROXY_ENV, EMBEDDED_PYTHON_PROXY_SOURCE)
-            .env("KEDI_PYTHON_VIRTUALIZER_COMMAND", virtualizer_python)
-            .env("KEDI_PYTHON_VIRTUALIZER_ARGS", PYTHON_VIRTUALIZER_ARGS)
+            .env("KEDI_PYTHON_VIRTUALIZER_COMMAND", python.command)
+            .env("KEDI_PYTHON_VIRTUALIZER_ARGS", virtualizer_args)
             .args([
                 "--input-type=module".to_string(),
                 "--eval".to_string(),
@@ -291,9 +263,9 @@ impl zed::Extension for KediExtension {
         worktree: &zed::Worktree,
     ) -> Result<Command> {
         match language_server_id.as_ref() {
-            KEDI_LSP_ID => self.kedi_lsp_command(worktree),
+            KEDI_LSP_ID => self.kedi_lsp_command(worktree, language_server_id),
             EMBEDDED_PYTHON_LSP_ID => self.embedded_python_command(language_server_id, worktree),
-            KEDI_PYTHON_DOCSTRINGS_LSP_ID => self.kedi_lsp_command(worktree),
+            KEDI_PYTHON_DOCSTRINGS_LSP_ID => self.kedi_lsp_command(worktree, language_server_id),
             id => Err(format!("Unsupported language server id: {id}")),
         }
     }
