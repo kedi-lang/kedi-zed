@@ -219,8 +219,24 @@
 (agent_directive
   value: (adapter_plain_value) @label)
 
-(agent_field
-  name: (identifier) @label)
+(agent_directive
+  !value
+  body: (agent_body
+    (agent_field
+      name: (identifier) @label)))
+
+(agent_directive
+  value: (adapter_plain_value)
+  body: (agent_body
+    (agent_field
+      name: (identifier) @property)))
+
+(agent_section
+  name: (identifier) @property)
+
+(agent_section_body
+  (agent_field
+    name: (identifier) @property))
 
 (agent_field
   value: (agent_command_plain_value) @text.literal)
