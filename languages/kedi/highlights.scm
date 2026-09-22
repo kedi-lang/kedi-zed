@@ -140,6 +140,39 @@
 (codemode_field
   value: (inline_python_expr) @embedded)
 
+(codemode_preload_tools_field
+  name: (identifier) @property)
+
+(codemode_preload_tools_field
+  value: (settings_plain_value) @text.literal)
+
+(codemode_preload_tools_field
+  value: (inline_python_expr) @embedded)
+
+(codemode_preload_tool_name
+  value: (codemode_tool_name) @text.literal)
+
+(tool_directive "tool" @keyword)
+
+(tool_field
+  name: (identifier) @property)
+
+(tool_field
+  value: (tool_plain_value) @text.literal)
+
+(tool_retry_on "retry_on" @property)
+
+(tool_exception_name
+  name: (identifier) @type)
+
+(requires_directive "requires" @keyword)
+
+(requires_directive
+  name: (identifier) @constant)
+
+(requirement_name
+  name: (identifier) @constant)
+
 (use_directive
   name: (identifier) @label)
 
