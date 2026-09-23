@@ -166,6 +166,7 @@
   name: (identifier) @type)
 
 (requires_directive "requires" @keyword)
+(show_stmt "show" @keyword)
 
 (requires_directive
   name: (identifier) @constant)
