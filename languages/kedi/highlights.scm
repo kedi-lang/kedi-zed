@@ -166,6 +166,7 @@
   name: (identifier) @type)
 
 (requires_directive "requires" @keyword)
+(budget_directive "budget" @keyword)
 (show_stmt "show" @keyword)
 
 (requires_directive
@@ -173,6 +174,12 @@
 
 (requirement_name
   name: (identifier) @constant)
+
+(budget_field
+  name: (identifier) @property)
+
+(budget_field
+  value: (budget_integer) @number)
 
 (use_directive
   name: (identifier) @label)
