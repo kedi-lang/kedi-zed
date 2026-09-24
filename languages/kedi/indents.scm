@@ -12,6 +12,9 @@
   (else_clause)
   (loop_stmt)
   (conditional_loop_stmt)
+  (task_stmt)
+  (task_group_stmt)
+  (process_clause)
 ] @indent
 
 [

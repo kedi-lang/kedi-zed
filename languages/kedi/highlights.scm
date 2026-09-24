@@ -336,6 +336,8 @@
   "loop"
   "task"
   "await"
+  "task_group"
+  "process"
   "map"
 ] @keyword
 
