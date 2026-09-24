@@ -35,7 +35,7 @@ At first language-server activation, the extension automatically prepares
 `~/.kedi/editor-venv`. This is the same environment and installation lock used
 by the Kedi VS Code extension, not a second Zed-specific environment. No host
 Python installation is needed: a checksum-verified uv 0.11.21 downloads Python
-3.12 and installs `kedi==0.4.0`, `tree-sitter-kedi==0.4.0`, and their dependencies.
+3.12 and installs `kedi==0.4.0`, `tree-sitter-kedi==0.4.1`, and their dependencies.
 An absolute `KEDI_HOME` overrides `~/.kedi`. Subsequent starts validate and reuse
 the existing environment without reinstalling; interrupted setups can be retried.
 
