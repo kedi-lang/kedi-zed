@@ -46,6 +46,16 @@
 (loop_stmt
   binder: (identifier) @variable)
 
+(task_stmt
+  binder: (identifier) @variable
+  subagent: (identifier) @type)
+
+(await_stmt
+  binder: (identifier) @variable)
+
+(await_stmt
+  handle: (identifier) @variable)
+
 (param
   name: (identifier) @variable.parameter)
 
@@ -324,6 +334,8 @@
   "if"
   "else"
   "loop"
+  "task"
+  "await"
   "map"
 ] @keyword
 
