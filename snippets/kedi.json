@@ -17,7 +17,7 @@
     "description": "Insert an inline Python expression"
   },
   "Python Block": {
-    "prefix": "```",
+    "prefix": "pyblock",
     "body": [
       "```",
       "${1:return value}",

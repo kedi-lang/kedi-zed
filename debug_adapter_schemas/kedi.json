@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Kedi Launch",
+  "type": "object",
+  "required": ["request", "program"],
+  "not": { "anyOf": [
+    { "required": ["python"] }, { "required": ["pythonPath"] },
+    { "required": ["interpreter"] }, { "required": ["pythonExecutable"] }
+  ] },
+  "properties": {
+    "request": { "type": "string", "enum": ["launch"], "default": "launch", "description": "Launch a saved Kedi program. Attach is not supported." },
+    "program": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$", "default": "$ZED_FILE", "description": "Absolute path to a saved .kedi program, or a Zed task variable resolving to one." },
+    "cwd": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000]*$", "default": "$ZED_WORKTREE_ROOT", "description": "Working directory. Defaults to the worktree root." },
+    "args": { "type": "array", "items": { "type": "string", "pattern": "^[^\\u0000]*$" }, "default": [], "description": "Program arguments, passed without shell parsing." },
+    "env": { "type": "object", "propertyNames": { "pattern": "^[^=\\u0000]+$" }, "additionalProperties": { "type": ["string", "null"], "pattern": "^[^\\u0000]*$" }, "default": {}, "description": "Debuggee environment overrides. Use null to remove an inherited variable. Prefer inherited credentials over committed secrets." },
+    "stopOnEntry": { "type": "boolean", "default": true, "description": "Stop before the first executable Kedi statement." },
+    "kediAdapter": { "type": "string", "minLength": 1, "description": "Optional Kedi model adapter. Translated to the DAP launch adapter field; Zed reserves adapter for the debugger name." },
+    "model": { "type": "string", "minLength": 1, "description": "Optional Kedi model override." }
+  }
+}

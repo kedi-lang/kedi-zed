@@ -1,5 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+const { PythonCompletions } = await import(process.env.KEDI_PYTHON_COMPLETION_SOURCE
+  ? "data:text/javascript;charset=utf-8," + encodeURIComponent(process.env.KEDI_PYTHON_COMPLETION_SOURCE)
+  : "./completion.mjs");
 
 const pyrightEntrypoint = process.argv[2] ?? process.argv[1];
 const debugEnabled = process.env.KEDI_DEBUG_EMBEDDED_PYTHON === "1";
@@ -42,6 +45,30 @@ const pendingPyrightRequests = new Map();
 const pendingVirtualizerRequests = new Map();
 const latestDocumentTokens = new Map();
 const virtualDocCache = new Map();
+const activeCompletions = new Map();
+const completions = new PythonCompletions((doc, items) => requestPersistentVirtualDocument(
+  doc.uri, doc.text, doc.focusLine,
+  { method: "completion", virtual: { text: doc.blankedText, mappings: doc.mappings }, items },
+));
+
+async function sendCompletionResponse(message, pending) {
+  try {
+    const current = () => !activeCompletions.get(pending.clientId)?.cancelled && isDocumentCurrent(pending.doc.uri, pending.token);
+    if (message.error) {
+      sendToClient({ jsonrpc: "2.0", id: pending.clientId, error: message.error });
+      return;
+    }
+    if (!current()) throw new Error("Completion cancelled or document changed");
+    const result = await completions.map(message.result, pending.doc, pending.position, pending.resolving);
+    if (!current() || (pending.resolving && !result)) throw new Error("Completion cannot be applied safely");
+    sendToClient({ jsonrpc: "2.0", id: pending.clientId, result });
+  } catch (error) {
+    sendToClient({ jsonrpc: "2.0", id: pending.clientId,
+      error: { code: -32801, message: String(error) } });
+  } finally {
+    activeCompletions.delete(pending.clientId);
+  }
+}
 
 function parseVirtualizerArgs(raw) {
   if (!raw) {
@@ -204,7 +231,7 @@ function handleVirtualizerData(chunk) {
   }
 }
 
-function requestPersistentVirtualDocument(uri, text, focusLine = null) {
+function requestPersistentVirtualDocument(uri, text, focusLine = null, extra = {}) {
   const child = ensureVirtualizer();
   const id = nextVirtualizerId++;
   return new Promise((resolve, reject) => {
@@ -215,7 +242,7 @@ function requestPersistentVirtualDocument(uri, text, focusLine = null) {
       rejectPendingVirtualizerRequests(new Error("virtualizer stopped after timeout"));
     }, VIRTUALIZER_TIMEOUT_MS);
     pendingVirtualizerRequests.set(id, { resolve, reject, timeout });
-    child.stdin.write(`${JSON.stringify({ id, uri, text, focusLine })}\n`);
+    child.stdin.write(`${JSON.stringify({ id, uri, text, focusLine, ...extra })}\n`);
   });
 }
 
@@ -723,15 +750,17 @@ async function flushDocumentSync(uri) {
   }
 }
 
-async function documentForPosition(uri, position) {
+async function documentForPosition(uri, position, includeEnd = false) {
   await flushDocumentSync(uri);
   let doc = docs.get(uri);
   if (!doc || !position) {
     return { doc: null, activeRange: null };
   }
 
-  const rawActiveRange = extractPythonRanges(doc.text).find((range) =>
-    isPositionInRange(position, range.range),
+  // Parser ranges include an unfinished backtick expression. The fallback
+  // scanner only recognizes closed pairs and must not veto those ranges.
+  const rawActiveRange = [...doc.ranges, ...extractPythonRanges(doc.text)].find((range) =>
+    containsPosition(position, range.range, includeEnd),
   );
   if (!rawActiveRange) {
     return { doc, activeRange: null };
@@ -744,7 +773,7 @@ async function documentForPosition(uri, position) {
   }
 
   const activeRange =
-    doc?.ranges.find((range) => isPositionInRange(position, range.range)) ?? null;
+    doc?.ranges.find((range) => containsPosition(position, range.range, includeEnd)) ?? null;
   return { doc: doc ?? null, activeRange };
 }
 
@@ -784,11 +813,16 @@ function mapUri(uri) {
   return uri;
 }
 
-function mapPosition(mappings, position, fromKey, toKey) {
+function containsPosition(position, range, includeEnd) {
+  return isPositionInRange(position, range) || (includeEnd
+    && position.line === range.end.line && position.character === range.end.character);
+}
+
+function mapPosition(mappings, position, fromKey, toKey, includeEnd = false) {
   for (const mapping of mappings) {
     const from = mapping[fromKey];
     const to = mapping[toKey];
-    if (!from || !to || !isPositionInRange(position, from)) {
+    if (!from || !to || !containsPosition(position, from, includeEnd)) {
       continue;
     }
     return {
@@ -1036,6 +1070,8 @@ function respondEmptyForMethod(method) {
 }
 
 async function handleClientRequest(message) {
+  const isCompletion = ["textDocument/completion", "completionItem/resolve"].includes(message.method);
+  if (isCompletion) activeCompletions.set(message.id, { cancelled: false });
   switch (message.method) {
     case "initialize": {
       pendingClientInitializeId = message.id;
@@ -1060,13 +1096,42 @@ async function handleClientRequest(message) {
       nextPyrightId += 1;
       return;
     }
+    case "completionItem/resolve": {
+      const original = completions.original(message.params);
+      if (!original) {
+        activeCompletions.delete(message.id);
+        sendToClient({ jsonrpc: "2.0", id: message.id, error: { code: -32801, message: "Completion expired" } });
+        return;
+      }
+      const { doc } = await documentForPosition(original.doc.uri, original.position, true);
+      if (!doc || doc.version !== original.doc.version || doc.text !== original.doc.text || activeCompletions.get(message.id)?.cancelled) {
+        activeCompletions.delete(message.id);
+        sendToClient({ jsonrpc: "2.0", id: message.id, error: { code: -32801, message: "Document changed" } });
+        return;
+      }
+      const id = nextPyrightId++;
+      pendingPyrightRequests.set(id, {
+        type: "completion", clientId: message.id, doc, position: original.position,
+        token: latestDocumentTokens.get(doc.uri), resolving: true,
+      });
+      sendToPyright({ jsonrpc: "2.0", id, method: message.method, params: original.item });
+      return;
+    }
+    case "textDocument/completion":
     case "textDocument/hover":
     case "textDocument/definition":
     case "textDocument/references": {
       const uri = message.params?.textDocument?.uri;
       const position = message.params?.position;
-      const { doc, activeRange } = await documentForPosition(uri, position);
+      const completion = message.method === "textDocument/completion";
+      const { doc, activeRange } = await documentForPosition(uri, position, completion);
+      if (completion && activeCompletions.get(message.id)?.cancelled) {
+        activeCompletions.delete(message.id);
+        sendToClient({ jsonrpc: "2.0", id: message.id, error: { code: -32800, message: "Request cancelled" } });
+        return;
+      }
       if (!doc || !position) {
+        activeCompletions.delete(message.id);
         sendToClient({
           jsonrpc: "2.0",
           id: message.id,
@@ -1076,6 +1141,7 @@ async function handleClientRequest(message) {
       }
 
       if (!activeRange) {
+        activeCompletions.delete(message.id);
         sendToClient({
           jsonrpc: "2.0",
           id: message.id,
@@ -1083,8 +1149,9 @@ async function handleClientRequest(message) {
         });
         return;
       }
-      const virtualPosition = mapPosition(doc.mappings, position, "sourceRange", "virtualRange");
+      const virtualPosition = mapPosition(doc.mappings, position, "sourceRange", "virtualRange", completion);
       if (!virtualPosition) {
+        activeCompletions.delete(message.id);
         sendToClient({
           jsonrpc: "2.0",
           id: message.id,
@@ -1095,7 +1162,8 @@ async function handleClientRequest(message) {
 
       const pyrightId = nextPyrightId++;
       pendingPyrightRequests.set(pyrightId, {
-        type: "clientRequest",
+        type: completion ? "completion" : "clientRequest",
+        doc, position, token: latestDocumentTokens.get(uri),
         clientId: message.id,
         method: message.method,
         docUri: uri,
@@ -1132,6 +1200,15 @@ async function handleClientRequest(message) {
 
 function handleClientNotification(message) {
   switch (message.method) {
+    case "$/cancelRequest":
+      if (activeCompletions.has(message.params?.id)) activeCompletions.get(message.params.id).cancelled = true;
+      for (const [id, pending] of pendingPyrightRequests) {
+        if (pending.clientId === message.params?.id) {
+          pending.cancelled = true;
+          queueOrSendToPyright({ ...message, params: { id } });
+        }
+      }
+      return;
     case "initialized":
       queueOrSendToPyright(message);
       return;
@@ -1155,6 +1232,7 @@ function handleClientNotification(message) {
       if (!uri || typeof text !== "string") {
         return;
       }
+      completions.clear(uri);
       const token = markDocumentCurrent(uri);
       scheduleDocumentSync(uri, text, version, token);
       return;
@@ -1165,6 +1243,7 @@ function handleClientNotification(message) {
         return;
       }
       closeDocumentInPyright(uri);
+      completions.clear(uri);
       return;
     }
     case "exit":
@@ -1184,7 +1263,9 @@ function handlePyrightMessage(message) {
       sendToPyright({
         jsonrpc: "2.0",
         id: message.id,
-        result: items.map(() => latestConfig),
+        result: items.map(({ section }) => section
+          ? section.split(".").reduce((value, key) => value?.[key], latestConfig) ?? null
+          : latestConfig),
       });
       return;
     }
@@ -1218,6 +1299,7 @@ function handlePyrightMessage(message) {
             hoverProvider: true,
             definitionProvider: true,
             referencesProvider: true,
+            completionProvider: { resolveProvider: true, triggerCharacters: [".", "\"", "'"] },
           },
           serverInfo: {
             name: "kedi-embedded-python",
@@ -1225,6 +1307,11 @@ function handlePyrightMessage(message) {
         },
       });
       pendingClientInitializeId = null;
+      return;
+    }
+
+    if (pending.type === "completion") {
+      void sendCompletionResponse(message, pending);
       return;
     }
 
@@ -1262,6 +1349,7 @@ const clientReader = new Reader((message) => {
   if (typeof message.method === "string") {
     if (typeof message.id !== "undefined") {
       handleClientRequest(message).catch((error) => {
+        activeCompletions.delete(message.id);
         sendToClient({
           jsonrpc: "2.0",
           id: message.id,

@@ -7,6 +7,9 @@ description = "Kedi language support for Zed via Tree-sitter queries and Kedi LS
 repository = "https://github.com/kedi-lang/kedi-zed"
 snippets = ["./snippets/kedi.json"]
 
+[debug_adapters.kedi]
+schema_path = "debug_adapter_schemas/kedi.json"
+
 [[capabilities]]
 kind = "process:exec"
 command = "*"
