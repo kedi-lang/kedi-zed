@@ -79,7 +79,7 @@ Users who need a stricter local policy can restrict `process:exec` through Zed's
 
 For normal extension installs from Zed's extension registry, users download the packaged extension and do not need Rust installed.
 
-For local dev-extension installs, Zed compiles the extension on the local machine and requires Rust to be installed via `rustup`. A Homebrew-only `cargo` / `rustc` setup will fail to compile Rust extensions during `Install Dev Extension`. This repository declares the required `wasm32-wasip1` target in `rust-toolchain.toml` for `rustup` users.
+For local dev-extension installs, Zed compiles the extension on the local machine and requires Rust to be installed via `rustup`. A Homebrew-only `cargo` / `rustc` setup will fail to compile Rust extensions during `Install Dev Extension`. This repository declares the required `wasm32-wasip2` target in `rust-toolchain.toml` for `rustup` users.
 Zed may create ignored local build artifacts such as `extension.wasm` and `grammars/` while compiling a dev extension; those are not source files to publish.
 
 Embedded Python completion uses Pyright and the Kedi virtualizer. It preserves
@@ -236,11 +236,15 @@ whether the program and working directory exist.
 `runtime/bootstrap.cjs` is the bundled installer from `kedi-vscode/runtime/bootstrap.js`.
 Update it with the parent checkout's `scripts/sync_editor_runtime.mjs`; do not
 edit generated code. `cargo test` checks host-Python configuration and
-`cargo build --release --target wasm32-wasip1` embeds the installer in the extension.
+`cargo build --locked --release --target wasm32-wasip2` embeds the installer in a
+WebAssembly component. A raw `wasm32-wasip1` module cannot be loaded as
+`extension.wasm` by Zed. Rebuild the dev extension in Zed after source or grammar
+pin changes; Cargo builds alone do not update the installed `extension.wasm`
+or `grammars/kedi.wasm` files.
 
 Run `cargo test --locked`,
 `RUSTC="$(rustup which rustc)" cargo clippy --locked --all-targets -- -D warnings`,
-and `cargo build --locked --release --target wasm32-wasip1` for debugger
+and `cargo build --locked --release --target wasm32-wasip2` for debugger
 registration, schema/launch conversion, stdio descriptors and missing-package
 hints. Existing proxy checks use `node --test embedded-python-proxy/*.test.mjs`.
 For native UI verification, install the dev extension, open `examples/debug.kedi`,
