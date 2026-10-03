@@ -1,4 +1,6 @@
 (line_comment) @comment
+(return_stmt "=" @keyword)
+(return_block_stmt "=" @keyword)
 (block_comment) @comment
 (procedure_def
   body: (block
@@ -320,7 +322,7 @@
   "approval"
   "codemode"
   "history"
-  "system"
+  "instructions"
   "mcp"
   "settings"
   "artifacts"

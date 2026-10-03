@@ -144,6 +144,7 @@ pub fn missing_package(python: &str) -> String {
 pub fn check_debugger(python: &Command) -> Result<()> {
     let output = Command::new(python.command.clone())
         .envs(python.env.clone())
+        .args(python.args.clone())
         .args(["-c", MODULE_PROBE])
         .output()
         .map_err(|_| missing_package(&python.command))?;
@@ -155,9 +156,11 @@ pub fn check_debugger(python: &Command) -> Result<()> {
 }
 
 pub fn binary(python: Command, config: Value, root: String) -> DebugAdapterBinary {
+    let mut arguments = python.args;
+    arguments.extend(["-m".into(), "kedi_debugger".into(), "--stdio".into()]);
     DebugAdapterBinary {
         command: Some(python.command),
-        arguments: vec!["-m".into(), "kedi_debugger".into(), "--stdio".into()],
+        arguments,
         envs: python.env,
         cwd: Some(root),
         connection: None,
@@ -313,6 +316,16 @@ mod tests {
         assert!(error.contains("kedi.debugging"));
         assert!(error.contains("No packages were installed"));
         assert!(!error.contains("pip install kedi-debugger"));
+    }
+
+    #[test]
+    fn managed_debugger_preserves_interpreter_isolation() {
+        let result = binary(
+            Command::new("/shared/editor-venv/bin/python").arg("-I"),
+            json!({"request": "launch", "program": "/tmp/main.kedi"}),
+            "/tmp".into(),
+        );
+        assert_eq!(result.arguments, ["-I", "-m", "kedi_debugger", "--stdio"]);
     }
 
     #[test]
