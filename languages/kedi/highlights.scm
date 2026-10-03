@@ -56,6 +56,9 @@
 (await_stmt
   handle: (identifier) @variable)
 
+(send_stmt
+  handle: (identifier) @variable)
+
 (param
   name: (identifier) @variable.parameter)
 
@@ -336,6 +339,8 @@
   "loop"
   "task"
   "await"
+  "send"
+  "interrupt"
   "task_group"
   "process"
   "map"
