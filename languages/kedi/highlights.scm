@@ -98,6 +98,11 @@
 (profile_directive
   name: (identifier) @label)
 
+(capability_directive
+  name: (identifier) @label)
+
+(defer_directive value: ["true" "false"] @constant)
+
 (subagent_directive
   name: (identifier) @label)
 
@@ -331,6 +336,8 @@
   "max_agents"
   "workflow"
   "profile"
+  "capability"
+  "defer"
   "use"
   "case"
   "data"
