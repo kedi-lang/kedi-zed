@@ -1,388 +1,273 @@
-(line_comment) @comment
-(return_stmt "=" @keyword)
-(return_block_stmt "=" @keyword)
-(block_comment) @comment
+; Syntax highlighting for Kedi (tree-sitter-kedi)
+;
+; Editor consumers: VS Code, Neovim (nvim-treesitter), Helix, Zed,
+; tree-sitter highlight CLI. Captures use the standard tree-sitter
+; capture names so existing themes pick them up without extra mapping.
+
+; ----------------------------------------------------------------
+; Comments
+; ----------------------------------------------------------------
+
+(line_comment) @comment.line
+(block_comment) @comment.block
 (procedure_def
   body: (block
     . (block_comment) @variable))
 
-(procedure_def
-  name: (identifier) @function)
-
-(type_def
-  name: (identifier) @type)
-
-(package_directive
-  name: (identifier) @namespace)
-
-(package_field
-  name: (identifier) @property)
-
-(package_field
-  value: (package_plain_value) @text.literal)
-
-(package_python_dependencies
-  "python_dependencies" @property)
-
-(package_dependency
-  value: (package_dependency_value) @text.literal)
-
-(module_import
-  module: (module_path) @namespace)
-
-(module_import_name
-  name: (identifier) @variable)
-
-(module_export_name
-  name: (identifier) @variable)
-
-(binding_target
-  name: (identifier) @variable)
-
-(assignment_stmt
-  name: (identifier) @variable)
-
-(assignment_block_stmt
-  name: (identifier) @variable)
-
-(loop_stmt
-  binder: (identifier) @variable)
-
-(task_stmt
-  binder: (identifier) @variable
-  subagent: (identifier) @type)
-
-(await_stmt
-  binder: (identifier) @variable)
-
-(await_stmt
-  handle: (identifier) @variable)
-
-(send_stmt
-  handle: (identifier) @variable)
-
-(param
-  name: (identifier) @variable.parameter)
-
-(type_field
-  name: (identifier) @property)
-
-(type_ref
-  name: (identifier) @type)
-
-(type_apply
-  name: (identifier) @type)
-
-(validation_block
-  kw: (validation_keyword) @keyword
-  procedure: (identifier) @function)
-
-(test_case
-  name: (identifier) @label)
-
-(eval_data
-  name: (identifier) @label)
-
-(eval_test_data
-  name: (identifier) @label)
-
-(eval_metric
-  name: (identifier) @label)
-
-(eval_metric
-  dataset: (identifier) @variable)
-
-(optimize_directive
-  name: (identifier) @label)
-
-(profile_directive
-  name: (identifier) @label)
-
-(capability_directive
-  name: (identifier) @label)
-
-(defer_directive value: ["true" "false"] @constant)
-
-(subagent_directive
-  name: (identifier) @label)
-
-(max_agents_directive
-  value: (positive_integer) @number)
-
-(workflow_directive
-  "workflow" @keyword
-  value: (identifier) @constant)
-
-(history_directive
-  "history" @keyword
-  value: (history_plain_value) @text.literal)
-
-(history_directive "history" @keyword)
-
-(history_field
-  name: (identifier) @property)
-
-(history_field
-  value: (settings_plain_value) @text.literal)
-
-(history_field
-  value: (inline_python_expr) @embedded)
-
-(skills_directive
-  ">" @operator)
-
-(skills_directive "skills" @keyword)
-
-(skills_plain_value) @constant
-
-(skills_field
-  name: (identifier) @property)
-
-(skills_field
-  value: (settings_plain_value) @text.literal)
-
-(skills_field
-  value: (inline_python_expr) @embedded)
-
-(codemode_directive
-  ">" @operator)
-
-(codemode_directive "codemode" @keyword)
-
-(codemode_plain_value) @constant
-
-(codemode_field
-  name: (identifier) @property)
-
-(codemode_field
-  value: (settings_plain_value) @text.literal)
-
-(codemode_field
-  value: (inline_python_expr) @embedded)
-
-(codemode_preload_tools_field
-  name: (identifier) @property)
-
-(codemode_preload_tools_field
-  value: (settings_plain_value) @text.literal)
-
-(codemode_preload_tools_field
-  value: (inline_python_expr) @embedded)
-
-(codemode_preload_tool_name
-  value: (codemode_tool_name) @text.literal)
-
-(tool_directive "tool" @keyword)
-
-(tool_field
-  name: (identifier) @property)
-
-(tool_field
-  value: (tool_plain_value) @text.literal)
-
-(tool_retry_on "retry_on" @property)
-
-(tool_exception_name
-  name: (identifier) @type)
-
-(requires_directive "requires" @keyword)
-(budget_directive "budget" @keyword)
-(show_stmt "show" @keyword)
-
-(requires_directive
-  name: (identifier) @constant)
-
-(requirement_name
-  name: (identifier) @constant)
-
-(budget_field
-  name: (identifier) @property)
-
-(budget_field
-  value: (budget_integer) @number)
-
-(use_directive
-  name: (identifier) @label)
-
-(use_tool_name
-  name: (identifier) @function)
-
-(use_tool_backtick
-  name: (identifier) @function)
-
-(mcp_field
-  name: (identifier) @property)
-
-(settings_field
-  name: (identifier) @property)
-
-(artifacts_field
-  name: (identifier) @property)
-
-(model_directive
-  value: (model_plain_value) @text.literal)
-
-(model_directive
-  value: (inline_python_expr) @embedded)
-
-(effort_directive
-  value: (effort_plain_value) @text.literal)
-
-(effort_directive
-  value: (inline_python_expr) @embedded)
-
-(approval_directive
-  value: (approval_plain_value) @text.literal)
-
-(approval_directive
-  value: (inline_python_expr) @embedded)
-
-(mcp_field
-  value: (mcp_plain_value) @text.literal)
-
-(mcp_field
-  value: (inline_python_expr) @embedded)
-
-(settings_field
-  value: (settings_plain_value) @text.literal)
-
-(settings_field
-  value: (inline_python_expr) @embedded)
-
-(artifacts_field
-  value: (artifacts_plain_value) @text.literal)
-
-(artifacts_field
-  value: (inline_python_expr) @embedded)
-
-(artifacts_field
-  name: (identifier) @_query_artifacts
-  value: (artifacts_plain_value) @constant
-  (#eq? @_query_artifacts "query_artifacts"))
-
-(input_segment
-  name: (identifier) @variable)
-
-(system_angle_segment) @variable
-
-(call_segment
-  name: (identifier) @function)
-
-(output_segment
-  name: (identifier) @variable)
-
-(text_segment) @text.literal
-(condition_text_segment) @text.literal
-(type_string) @text.literal
-(python_code) @embedded
-(python_inline_body) @embedded
-
-(agent_directive
-  value: (adapter_plain_value) @label)
-
-(agent_directive
-  !value
-  body: (agent_body
-    (agent_field
-      name: (identifier) @label)))
-
-(agent_directive
-  value: (adapter_plain_value)
-  body: (agent_body
-    (agent_field
-      name: (identifier) @property)))
-
-(agent_section
-  name: (identifier) @property)
-
-(agent_section_body
-  (agent_field
-    name: (identifier) @property))
-
-(agent_field
-  value: (agent_command_plain_value) @text.literal)
-
-(agent_field
-  value: (inline_python_expr) @embedded)
-
-(adapter_directive
-  value: (adapter_plain_value) @label)
-
-(adapter_directive
-  value: (inline_python_expr) @embedded)
+; ----------------------------------------------------------------
+; Operators / punctuation
+; ----------------------------------------------------------------
 
 (template_block_stmt
   ">>" @keyword)
-
 (raw_invoke_stmt
   "<<" @keyword)
+(return_stmt "=" @keyword.return)
+(return_block_stmt "=" @keyword.return)
 
-[
-  "auto"
-  "optimize"
-  "agent"
-  "adapter"
-  "model"
-  "effort"
-  "approval"
-  "codemode"
-  "history"
-  "instructions"
-  "mcp"
-  "settings"
-  "artifacts"
-  "output"
-  "subagent"
-  "max_agents"
-  "workflow"
-  "profile"
-  "capability"
-  "defer"
-  "use"
-  "case"
-  "data"
-  "test_data"
-  "metric"
-  "if"
-  "else"
-  "loop"
-  "task"
-  "await"
-  "send"
-  "interrupt"
-  "task_group"
-  "process"
-  "map"
-] @keyword
+["@" "~" "<" ">"] @punctuation.special
+["=" ":" "(" ")" "[" "]" "," "|" "->" "*"] @punctuation.delimiter
+":=" @operator
+["```"] @punctuation.special
+"`" @punctuation.special
 
-[
-  "import"
-  "export"
-] @operator
+; ----------------------------------------------------------------
+; Procedure & validation block keywords
+; ----------------------------------------------------------------
 
+(validation_keyword) @keyword
+"import" @operator
+"export" @operator
 "package" @keyword
+"auto" @keyword
+"optimize" @keyword
+"agent" @keyword
+"adapter" @keyword
+"model" @keyword
+"effort" @keyword
+"approval" @keyword
+"codemode" @keyword
+"requires" @keyword
+"budget" @keyword
+"show" @keyword
+"tool" @keyword
+"instructions" @keyword
+"mcp" @keyword
+"settings" @keyword
+"artifacts" @keyword
+"output" @keyword
+"subagent" @keyword
+"max_agents" @keyword
+"workflow" @keyword
+"mode" @keyword
+"tools" @keyword
+"profile" @keyword
+"capability" @keyword
+"defer" @keyword
+"use" @keyword
+"case" @keyword
+"data" @keyword
+"test_data" @keyword
+"metric" @keyword
+"if" @keyword
+"else" @keyword
+"loop" @keyword
+"task" @keyword
+"await" @keyword
+"send" @keyword
+"interrupt" @keyword
+"task_group" @keyword
+"process" @keyword
+"map" @keyword
 
-[
-  "="
-  ":="
-  "->"
-  "|"
-] @operator
+; ----------------------------------------------------------------
+; Procedure and type-definition names
+; ----------------------------------------------------------------
 
-[
-  "@"
-  "~"
-  "<"
-  ">"
-  "```"
-  "`"
-] @punctuation.special
+(procedure_def name: (identifier) @function)
+(type_def name: (identifier) @type.definition)
+(package_directive name: (identifier) @namespace)
+(package_field name: (identifier) @property)
+(package_field value: (package_plain_value) @string)
+(package_python_dependencies "python_dependencies" @property)
+(package_dependency value: (package_dependency_value) @string)
+(module_import module: (module_path) @namespace)
+(module_import_name name: (identifier) @variable)
+(module_export_name name: (identifier) @variable)
+(binding_target name: (identifier) @variable)
+(assignment_stmt name: (identifier) @variable)
+(assignment_block_stmt name: (identifier) @variable)
+(loop_stmt binder: (identifier) @variable)
+(task_stmt binder: (identifier) @variable)
+(task_stmt subagent: (identifier) @type)
+(await_stmt binder: (identifier) @variable)
+(await_stmt handle: (identifier) @variable)
+(send_stmt handle: (identifier) @variable)
+(param name: (identifier) @variable.parameter)
+(type_field name: (identifier) @property)
 
-[
-  "("
-  ")"
-  "["
-  "]"
-  ","
-  ":"
-] @punctuation.delimiter
+; ----------------------------------------------------------------
+; Template segments
+; ----------------------------------------------------------------
+
+; Segment captures apply anywhere (template_line, template_block, returns, …).
+(input_segment name: (identifier) @variable)
+(system_angle_segment) @variable
+(call_segment name: (identifier) @function.call)
+(output_segment
+  name: (identifier) @variable.builtin)
+(text_segment) @string
+(condition_text_segment) @string
+
+; ----------------------------------------------------------------
+; Type expressions
+; ----------------------------------------------------------------
+
+(type_ref name: (identifier) @type)
+(type_apply name: (identifier) @type)
+(type_string) @string
+
+; ----------------------------------------------------------------
+; Validation suite names (after `@test:` / `@eval:`)
+; ----------------------------------------------------------------
+
+(validation_block procedure: (identifier) @function)
+(test_case name: (identifier) @label)
+(eval_data name: (identifier) @label)
+(eval_test_data name: (identifier) @label)
+(eval_metric name: (identifier) @label)
+(eval_metric dataset: (identifier) @variable)
+
+(optimize_directive name: (identifier) @label)
+(profile_directive name: (identifier) @label)
+(capability_directive name: (identifier) @label)
+(defer_directive value: ["true" "false"] @constant.builtin)
+(subagent_directive name: (identifier) @label)
+(max_agents_directive value: (positive_integer) @number)
+(workflow_directive
+  "workflow" @keyword
+  value: (identifier) @constant)
+(workflow_mode_directive value: (identifier) @constant)
+(workflow_tools_directive name: (identifier) @function.call)
+(workflow_tool_name name: (identifier) @function.call)
+(history_directive
+  "history" @keyword
+  value: (history_plain_value) @string)
+(history_directive "history" @keyword)
+
+(hooks_directive
+  ">" @operator)
+(hooks_directive "hooks" @keyword)
+(hooks_plain_value) @constant.builtin
+(hooks_field
+  name: (identifier) @property)
+(hooks_field
+  value: (inline_python_expr) @string.special)
+
+(skills_directive
+  ">" @operator)
+(skills_directive "skills" @keyword)
+(skills_plain_value) @constant.builtin
+(skills_field
+  name: (identifier) @property)
+(skills_field value: (settings_plain_value) @string)
+(skills_field value: (inline_python_expr) @string.special)
+(codemode_directive
+  ">" @operator)
+(codemode_directive "codemode" @keyword)
+(codemode_plain_value) @constant.builtin
+(codemode_field
+  name: (identifier) @property)
+(codemode_field value: (settings_plain_value) @string)
+(codemode_field value: (inline_python_expr) @string.special)
+(codemode_preload_tools_field
+  name: (identifier) @property)
+(codemode_preload_tools_field value: (settings_plain_value) @string)
+(codemode_preload_tools_field value: (inline_python_expr) @string.special)
+(codemode_preload_tool_name value: (codemode_tool_name) @string)
+(tool_field name: (identifier) @property)
+(tool_field value: (tool_plain_value) @string)
+(tool_retry_on "retry_on" @property)
+(tool_exception_name name: (identifier) @type)
+(requires_directive name: (identifier) @constant)
+(requirement_name name: (identifier) @constant)
+(budget_field name: (identifier) @property)
+(budget_field value: (budget_integer) @number)
+(history_field name: (identifier) @property)
+(history_field value: (settings_plain_value) @string)
+(history_field value: (inline_python_expr) @string.special)
+(agent_directive
+  value: (adapter_plain_value) @label)
+(agent_directive
+  !value
+  body: (agent_body
+    (agent_field name: (identifier) @label)))
+(agent_directive
+  value: (adapter_plain_value)
+  body: (agent_body
+    (agent_field name: (identifier) @property)))
+(agent_section name: (identifier) @property)
+(agent_section_body
+  (agent_field name: (identifier) @property))
+(agent_field
+  value: (agent_command_plain_value) @string)
+(agent_field
+  value: (inline_python_expr) @string.special)
+(adapter_directive
+  value: (adapter_plain_value) @label)
+(use_directive name: (identifier) @label)
+(use_tool_name name: (identifier) @function.call)
+(use_tool_backtick name: (identifier) @function.call)
+(mcp_field name: (identifier) @property)
+(settings_field name: (identifier) @property)
+(artifacts_field name: (identifier) @property)
+
+(model_directive
+  value: (model_plain_value) @string)
+(model_directive
+  value: (inline_python_expr) @string.special)
+
+(agent_directive
+  value: (inline_python_expr) @string.special)
+
+(adapter_directive
+  value: (inline_python_expr) @string.special)
+
+(effort_directive
+  value: (effort_plain_value) @string)
+(effort_directive
+  value: (inline_python_expr) @string.special)
+
+(approval_directive
+  value: (approval_plain_value) @string)
+(approval_directive
+  value: (inline_python_expr) @string.special)
+
+(mcp_field
+  value: (mcp_plain_value) @string)
+(mcp_field
+  value: (inline_python_expr) @string.special)
+
+(settings_field
+  value: (settings_plain_value) @string)
+(settings_field
+  value: (inline_python_expr) @string.special)
+
+(artifacts_field
+  value: (artifacts_plain_value) @string)
+(artifacts_field
+  value: (inline_python_expr) @string.special)
+(artifacts_field
+  name: (identifier) @_query_artifacts
+  value: (artifacts_plain_value) @constant.builtin
+  (#eq? @_query_artifacts "query_artifacts"))
+
+; ----------------------------------------------------------------
+; Python source embedded in Kedi (these regions get a Python
+; injection — see queries/injections.scm — but we also give them a
+; fallback "code" style so they remain readable when no injection
+; parser is available).
+; ----------------------------------------------------------------
+
+(python_code) @string.special
+(python_inline_body) @string.special
