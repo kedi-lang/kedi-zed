@@ -1,6 +1,6 @@
 id = "kedi"
 name = "Kedi"
-version = "0.4.0"
+version = "0.5.0"
 schema_version = 1
 authors = ["Mert <mert@kedi-lang.org>"]
 description = "Kedi language support for Zed via Tree-sitter queries and Kedi LSP."
@@ -38,4 +38,4 @@ languages = ["Python"]
 
 [grammars.kedi]
 repository = "https://github.com/kedi-lang/tree-sitter-kedi"
-rev = "242e97d7d4fb817d46c886bf799477fd31134c87"
+rev = "fdec464f5aa08af163055645f72494196713b4e8"
