@@ -95,6 +95,9 @@
 (optimize_directive
   name: (identifier) @label)
 
+(evolve_directive
+  name: (identifier) @label)
+
 (profile_directive
   name: (identifier) @label)
 
@@ -326,6 +329,7 @@
 [
   "auto"
   "optimize"
+  "evolve"
   "agent"
   "adapter"
   "model"
