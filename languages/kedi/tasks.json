@@ -1,0 +1,46 @@
+[
+  {
+    "label": "kedi: run $ZED_FILENAME",
+    "command": "sh",
+    "args": [
+      "-c",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "kedi",
+      "$ZED_FILE"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-file"
+    ]
+  },
+  {
+    "label": "kedi: test $ZED_FILENAME",
+    "command": "sh",
+    "args": [
+      "-c",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "kedi",
+      "$ZED_FILE",
+      "--test"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-test"
+    ]
+  },
+  {
+    "label": "kedi: eval $ZED_FILENAME",
+    "command": "sh",
+    "args": [
+      "-c",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "kedi",
+      "$ZED_FILE",
+      "--eval"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-eval"
+    ]
+  }
+]

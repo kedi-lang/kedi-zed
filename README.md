@@ -129,6 +129,22 @@ Host Python example (also applies to the embedded virtualizer):
 
 Embedded Python regions inside `.kedi` files are injected as Python for syntax highlighting. Use `semantic_tokens: "combined"` for Kedi if you want Kedi tree-sitter highlighting plus LSP semantic tokens together.
 
+## Running
+
+A run button appears in the gutter beside the first item of a `.kedi` file and beside each
+`@test:` and `@eval:` block. The same tasks are in **task: spawn**:
+
+| Task | Command |
+| --- | --- |
+| `kedi: run <file>` | `kedi <file>` |
+| `kedi: test <file>` | `kedi <file> --test` |
+| `kedi: eval <file>` | `kedi <file> --eval` |
+
+`--test` and `--eval` run every block in the file. The tasks run in Zed's terminal from the
+worktree root. They use `kedi` from the terminal's `PATH`, such as an activated project
+environment, and fall back to the shared managed environment. To change a command, add a task
+with the same tag (`kedi-file`, `kedi-test` or `kedi-eval`) to `.zed/tasks.json`.
+
 ## Debugging
 
 The extension registers the `kedi` debug adapter through Zed extension API
