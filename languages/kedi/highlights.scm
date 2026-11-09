@@ -50,7 +50,7 @@
 
 (task_stmt
   binder: (identifier) @variable
-  subagent: (identifier) @type)
+  subagent: (identifier) @label)
 
 (await_stmt
   binder: (identifier) @variable)
