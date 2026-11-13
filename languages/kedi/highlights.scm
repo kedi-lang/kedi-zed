@@ -277,6 +277,14 @@
 (call_segment
   name: (identifier) @function)
 
+(reference_segment
+  name: (identifier) @variable)
+
+(reference_call
+  name: (identifier) @function)
+
+(reference_segment ["<<" ">>"] @punctuation.special)
+
 (output_segment
   name: (identifier) @variable)
 
