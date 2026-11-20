@@ -150,7 +150,11 @@ A run button appears in the gutter beside the first item of a `.kedi` file and b
 
 `--test` and `--eval` run every block in the file. The tasks run in Zed's terminal from the
 worktree root. They use `kedi` from the terminal's `PATH`, such as an activated project
-environment, and fall back to the shared managed environment. To change a command, add a task
+environment, and fall back to the shared managed environment (run with `-I`, so a
+user-installed Python or `PYTHONPATH` cannot shadow it). On Windows, use the
+` (Windows)` variants (`kedi: run <file> (Windows)` etc.), which run the same fallback
+through PowerShell; Zed has no per-OS task override, so both sets are listed on every
+platform. To change a command, add a task
 with the same tag (`kedi-file`, `kedi-test` or `kedi-eval`) to `.zed/tasks.json`.
 
 ## Debugging
