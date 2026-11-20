@@ -8,7 +8,8 @@ const pyrightEntrypoint = process.argv[2] ?? process.argv[1];
 const debugEnabled = process.env.KEDI_DEBUG_EMBEDDED_PYTHON === "1";
 const virtualizerCommand = process.env.KEDI_PYTHON_VIRTUALIZER_COMMAND || "python3";
 const virtualizerArgs = parseVirtualizerArgs(process.env.KEDI_PYTHON_VIRTUALIZER_ARGS);
-const VIRTUALIZER_TIMEOUT_MS = 5000;
+// Overridable for tests; the default matches the async request timeout.
+const VIRTUALIZER_TIMEOUT_MS = Number(process.env.KEDI_VIRTUALIZER_TIMEOUT_MS ?? 5000) || 5000;
 const DOCUMENT_SYNC_DEBOUNCE_MS = 75;
 const VIRTUAL_DOC_CACHE_LIMIT = 32;
 const BACKGROUND_FOCUS_LINE = -1;
@@ -670,11 +671,14 @@ async function computeScopeAwareVirtualDocument(uri, text, focusLine = null) {
     encoding: "utf8",
     env: process.env,
     maxBuffer: 10 * 1024 * 1024,
+    // Without a timeout a hung virtualizer blocks the event loop forever;
+    // the persistent path already times out after VIRTUALIZER_TIMEOUT_MS.
+    timeout: VIRTUALIZER_TIMEOUT_MS,
   });
 
-  if (result.status !== 0 || !result.stdout) {
-    debug("virtualizer fallback", result.status, result.stderr || "");
-    warnVirtualizerFallback(result.status, result.stderr);
+  if (result.error || result.status !== 0 || !result.stdout) {
+    debug("virtualizer fallback", result.status, result.error ?? result.stderr ?? "");
+    warnVirtualizerFallback(result.status, result.stderr || result.error);
     return null;
   }
 

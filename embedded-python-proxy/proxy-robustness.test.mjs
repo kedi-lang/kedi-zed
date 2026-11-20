@@ -492,3 +492,34 @@ test("pyright initialize errors are forwarded to the client", async (t) => {
     },
   );
 });
+
+// Z4: a hung virtualizer must not block the event loop forever. The
+// persistent path times out, and the spawnSync fallback must time out too
+// instead of hanging indefinitely (on the base commit it does).
+test("hung virtualizer does not block the proxy forever (spawnSync timeout)", async (t) => {
+  await withProxy(
+    t,
+    { virtualizer: { mode: "hang" }, timeoutMs: 250 },
+    async ({ client }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", FENCED_TEXT);
+      const start = Date.now();
+      const hover = await client.request(
+        "textDocument/hover",
+        {
+          textDocument: { uri: "file:///tmp/test.kedi" },
+          position: { line: 3, character: 3 },
+        },
+        15000,
+      );
+      const elapsed = Date.now() - start;
+      assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      assert.ok(
+        hover.result.contents.value.includes("py-hover"),
+        `expected pyright hover content, got ${JSON.stringify(hover.result.contents)}`,
+      );
+      assert.ok(elapsed < 12000, `hover took ${elapsed}ms; spawnSync must time out`);
+      client.assertNoCrash();
+    },
+  );
+});
