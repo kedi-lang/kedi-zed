@@ -101,6 +101,20 @@ impl EmbeddedPythonSettings {
     }
 }
 
+/// Arguments for running `binary.path` as the Kedi LSP server. A path
+/// naming a Python interpreter runs the server module, with the
+/// configured arguments after it; any other executable runs as-is with
+/// the configured arguments.
+fn kedi_lsp_binary_args(path: &str, arguments: Vec<String>) -> Vec<String> {
+    if runtime::looks_like_python(path) {
+        let mut args = vec!["-m".to_string(), "kedi.lsp.server".to_string()];
+        args.extend(arguments);
+        args
+    } else {
+        arguments
+    }
+}
+
 impl KediExtension {
     fn extension_root() -> Result<PathBuf> {
         env::current_dir().map_err(|e| e.to_string())
@@ -153,7 +167,11 @@ impl KediExtension {
             if let Some(interpreter) = Self::python_from_shebang(&kedi_lsp_path, worktree) {
                 return Ok(Command::new(interpreter).envs(worktree.shell_env()));
             }
-            return Err("Cannot identify Python from the custom Kedi server executable. Set lsp.kedi-lsp.settings.python_path for the language helpers and debugger.".into());
+            // A custom server path that is neither a Python interpreter
+            // nor a script with a Python shebang is a standalone server
+            // executable: the language helpers and the debugger still need
+            // a Python interpreter, so they fall back to the managed
+            // environment instead of failing.
         }
         Ok(Command::new(runtime::managed_python(worktree, id)?)
             .envs(worktree.shell_env())
@@ -217,10 +235,11 @@ impl KediExtension {
 
         if let Some(binary_settings) = lsp_settings.binary {
             if let Some(path) = binary_settings.path {
-                let mut command = Command::new(path).envs(shell_env.clone());
-                if let Some(arguments) = binary_settings.arguments {
-                    command = command.args(arguments);
-                }
+                let arguments = kedi_lsp_binary_args(
+                    &path,
+                    binary_settings.arguments.unwrap_or_default(),
+                );
+                let mut command = Command::new(path).envs(shell_env.clone()).args(arguments);
                 if let Some(env) = binary_settings.env {
                     command = command.envs(env);
                 }
@@ -494,5 +513,33 @@ mod pyright_tests {
         )
         .unwrap_err();
         assert_eq!(error, "Certificate verification failed");
+    }
+}
+
+#[cfg(test)]
+mod binary_path_tests {
+    use super::kedi_lsp_binary_args;
+
+    #[test]
+    fn python_interpreter_path_runs_the_server_module() {
+        assert_eq!(
+            kedi_lsp_binary_args(
+                "/usr/bin/python3",
+                vec!["--port".into(), "9000".into()]
+            ),
+            ["-m", "kedi.lsp.server", "--port", "9000"]
+        );
+        assert_eq!(
+            kedi_lsp_binary_args("C:\\venv\\Scripts\\python.EXE", vec![]),
+            ["-m", "kedi.lsp.server"]
+        );
+    }
+
+    #[test]
+    fn non_python_server_binary_runs_as_is() {
+        assert_eq!(
+            kedi_lsp_binary_args("/usr/local/bin/kedi-lsp", vec!["--port".into()]),
+            ["--port"]
+        );
     }
 }

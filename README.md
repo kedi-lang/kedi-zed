@@ -42,9 +42,17 @@ the existing environment without reinstalling; interrupted setups can be retried
 
 Resolution order:
 
-1. Explicit `lsp.kedi-lsp.binary.path` (advanced override).
+1. Explicit `lsp.kedi-lsp.binary.path` (advanced override): the server
+   command itself. When it names a Python interpreter, `-m kedi.lsp.server`
+   (plus the configured arguments) is appended; any other executable runs
+   as-is.
 2. Explicit `lsp.kedi-lsp.settings.python_path` (host Python).
 3. The shared managed environment.
+
+The same order decides the interpreter for the language helpers and the
+debugger, except that a `binary.path` naming a non-Python executable (with
+no Python shebang) falls back to the managed environment there instead of
+failing: the helpers and the debugger always need a Python interpreter.
 
 Host environments must already have Kedi installed. They are never modified.
 The extension does not silently pick a workspace executable or Python on PATH.

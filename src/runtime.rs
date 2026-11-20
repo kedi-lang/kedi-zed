@@ -76,10 +76,12 @@ pub fn configured_python(settings: Option<&zed::serde_json::Value>) -> Result<Op
 }
 
 pub fn looks_like_python(path: &str) -> bool {
-    // WASI paths do not recognize Windows separators.
+    // WASI paths do not recognize Windows separators, and the name match
+    // is case-insensitive, so `PYTHON.EXE` and `python.EXE` count too.
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let name = name.strip_suffix(".exe").unwrap_or(name);
-    name.strip_prefix("python").is_some_and(|version| {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    stem.strip_prefix("python").is_some_and(|version| {
         version.is_empty()
             || (version.starts_with(|c: char| c.is_ascii_digit())
                 && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
@@ -151,12 +153,16 @@ mod tests {
             "/venv/bin/python",
             "/venv/bin/python3.12",
             "C:\\venv\\Scripts\\python.exe",
+            "C:\\venv\\Scripts\\python.EXE",
+            "PYTHON.EXE",
+            "Python3.12",
         ] {
             assert!(looks_like_python(path), "{path}");
         }
         for path in [
             "/bin/sh",
             "python-lsp-server",
+            "Python-lsp-server",
             "python_config",
             "/bin/node",
             "python/",
