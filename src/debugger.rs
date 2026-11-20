@@ -127,7 +127,24 @@ pub fn scenario(config: DebugConfig) -> Result<DebugScenario> {
 }
 
 pub fn missing_package(python: &str) -> String {
-    let quoted = if cfg!(target_os = "windows") || python.contains('\\') {
+    missing_package_on(python, is_windows_host())
+}
+
+/// `current_platform` is a host import: it only exists inside the WASM
+/// component, so on a host test build there is no platform to query and
+/// the import must not even be referenced.
+#[cfg(target_arch = "wasm32")]
+fn is_windows_host() -> bool {
+    matches!(zed::current_platform().0, zed::Os::Windows)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_windows_host() -> bool {
+    false
+}
+
+pub fn missing_package_on(python: &str, windows: bool) -> String {
+    let quoted = if windows || python.contains('\\') {
         json!(python).to_string()
     } else {
         format!("'{}'", python.replace('\'', "'\\''"))
@@ -309,13 +326,22 @@ mod tests {
 
     #[test]
     fn missing_package_has_a_local_install_hint_for_the_exact_interpreter() {
-        let error = missing_package("/host venv/bin/python");
+        let error = missing_package_on("/host venv/bin/python", false);
         assert!(error.contains(
             "--python '/host venv/bin/python' -e /path/to/kedi -e /path/to/kedi/debugger"
         ));
         assert!(error.contains("kedi.debugging"));
         assert!(error.contains("No packages were installed"));
         assert!(!error.contains("pip install kedi-debugger"));
+    }
+
+    #[test]
+    fn missing_package_quotes_for_windows() {
+        let error = missing_package_on("C:\\venv\\Scripts\\python.exe", true);
+        assert!(
+            error.contains("--python \"C:\\\\venv\\\\Scripts\\\\python.exe\""),
+            "{error}"
+        );
     }
 
     #[test]

@@ -8,7 +8,8 @@ const pyrightEntrypoint = process.argv[2] ?? process.argv[1];
 const debugEnabled = process.env.KEDI_DEBUG_EMBEDDED_PYTHON === "1";
 const virtualizerCommand = process.env.KEDI_PYTHON_VIRTUALIZER_COMMAND || "python3";
 const virtualizerArgs = parseVirtualizerArgs(process.env.KEDI_PYTHON_VIRTUALIZER_ARGS);
-const VIRTUALIZER_TIMEOUT_MS = 5000;
+// Overridable for tests; the default matches the async request timeout.
+const VIRTUALIZER_TIMEOUT_MS = Number(process.env.KEDI_VIRTUALIZER_TIMEOUT_MS ?? 5000) || 5000;
 const DOCUMENT_SYNC_DEBOUNCE_MS = 75;
 const VIRTUAL_DOC_CACHE_LIMIT = 32;
 const BACKGROUND_FOCUS_LINE = -1;
@@ -27,9 +28,19 @@ pyright.stderr.on("data", (chunk) => {
   process.stderr.write(chunk);
 });
 
+// A spawn failure or a broken stdin pipe must not crash the proxy with an
+// uncaught EPIPE: reject the pending requests cleanly and shut down.
+pyright.on("error", (error) => {
+  shutdownProxy(new Error(`pyright failed to start: ${error.message}`));
+});
+pyright.stdin.on("error", (error) => {
+  shutdownProxy(new Error(`pyright stdin failed: ${error.message}`));
+});
+
 let nextPyrightId = 1;
 let pyrightInitialized = false;
 let pendingNotifications = [];
+let pendingClientRequests = [];
 let pendingClientInitializeId = null;
 let latestConfig = {};
 let warnedVirtualizerFallback = false;
@@ -161,6 +172,48 @@ function rejectPendingVirtualizerRequests(error) {
   pendingVirtualizerRequests.clear();
 }
 
+let shuttingDown = false;
+
+// Rejects every request still waiting on pyright with a JSON-RPC error, so
+// a dead backend fails the client request instead of hanging it.
+function failPendingPyrightRequests(error) {
+  const failure = { code: -32603, message: String(error?.message ?? error) };
+  for (const pending of pendingPyrightRequests.values()) {
+    if (pending.type === "completion") {
+      void sendCompletionResponse({ error: failure }, pending);
+    } else if (pending.type === "clientRequest") {
+      sendToClient({ jsonrpc: "2.0", id: pending.clientId, error: failure });
+    } else if (pending.type === "initialize" && pendingClientInitializeId !== null) {
+      sendToClient({ jsonrpc: "2.0", id: pendingClientInitializeId, error: failure });
+      pendingClientInitializeId = null;
+    }
+  }
+  pendingPyrightRequests.clear();
+  rejectPendingClientRequests(error);
+}
+
+// Shuts the proxy down after pyright is gone: the proxy cannot serve
+// requests without it. Pending replies are sent first, then the process
+// exits after a short drain so the error responses can flush.
+function shutdownProxy(error) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  if (error) {
+    process.stderr.write(`[kedi-embedded-python] ${error.message}\n`);
+    failPendingPyrightRequests(error);
+    rejectPendingVirtualizerRequests(error);
+  }
+  stopVirtualizer();
+  try {
+    pyright.kill();
+  } catch {
+    // Already dead.
+  }
+  setTimeout(() => process.exit(1), 100);
+}
+
 function stopVirtualizer() {
   if (!virtualizer) {
     return;
@@ -181,13 +234,42 @@ function ensureVirtualizer() {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
   });
+  const child = virtualizer;
 
   virtualizer.stderr.on("data", (chunk) => {
     debug("virtualizer stderr", chunk.toString("utf8").trim());
   });
   virtualizer.stdout.on("data", handleVirtualizerData);
+  // A spawn failure or a broken stdin pipe must reject the pending
+  // virtualizer requests instead of crashing the proxy, and the next
+  // request respawns the virtualizer.
+  virtualizer.on("error", (error) => {
+    debug("virtualizer error", String(error));
+    if (virtualizer === child) {
+      virtualizer = null;
+    }
+    rejectPendingVirtualizerRequests(error);
+  });
+  virtualizer.stdin.on("error", (error) => {
+    debug("virtualizer stdin error", String(error));
+    if (virtualizer === child) {
+      virtualizer = null;
+      try {
+        child.kill();
+      } catch {
+        // Already dead.
+      }
+    }
+    rejectPendingVirtualizerRequests(error);
+  });
   virtualizer.on("exit", (code, signal) => {
     debug("virtualizer exited", `code=${code}`, `signal=${signal}`);
+    // Ignore exits of a child that has already been replaced: its pending
+    // requests were rejected by the error handler or the stop that
+    // replaced it, and the new child owns the current requests.
+    if (virtualizer !== child) {
+      return;
+    }
     virtualizer = null;
     rejectPendingVirtualizerRequests(
       new Error(`virtualizer exited (code=${code}, signal=${signal})`),
@@ -308,6 +390,31 @@ function flushPendingNotifications() {
     sendToPyright(message);
   }
   pendingNotifications = [];
+}
+
+// Requests that arrived before initialize completed are replayed in
+// order, after the queued notifications. Each replay runs through the
+// normal request path, so a failure there still answers the client.
+function flushPendingClientRequests() {
+  const queued = pendingClientRequests.splice(0);
+  for (const message of queued) {
+    handleClientRequest(message).catch((error) => {
+      activeCompletions.delete(message.id);
+      sendToClient({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32603, message: String(error) },
+      });
+    });
+  }
+}
+
+function rejectPendingClientRequests(error) {
+  const failure = { code: -32603, message: String(error?.message ?? error) };
+  const queued = pendingClientRequests.splice(0);
+  for (const message of queued) {
+    sendToClient({ jsonrpc: "2.0", id: message.id, error: failure });
+  }
 }
 
 function createVirtualUri(kediUri) {
@@ -591,11 +698,14 @@ async function computeScopeAwareVirtualDocument(uri, text, focusLine = null) {
     encoding: "utf8",
     env: process.env,
     maxBuffer: 10 * 1024 * 1024,
+    // Without a timeout a hung virtualizer blocks the event loop forever;
+    // the persistent path already times out after VIRTUALIZER_TIMEOUT_MS.
+    timeout: VIRTUALIZER_TIMEOUT_MS,
   });
 
-  if (result.status !== 0 || !result.stdout) {
-    debug("virtualizer fallback", result.status, result.stderr || "");
-    warnVirtualizerFallback(result.status, result.stderr);
+  if (result.error || result.status !== 0 || !result.stdout) {
+    debug("virtualizer fallback", result.status, result.error ?? result.stderr ?? "");
+    warnVirtualizerFallback(result.status, result.stderr || result.error);
     return null;
   }
 
@@ -662,11 +772,20 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
   }
   const previous = docs.get(uri);
 
+  // The virtual document version sent to pyright must increase strictly:
+  // a focus change rebuilds the virtual text for the same client version,
+  // and resending that version as didChange violates the LSP version
+  // contract. The proxy owns the virtual versions, so it bumps them.
+  const sendVersion = previous
+    ? Math.max(version, (previous.sentVersion ?? version) + 1)
+    : version;
+
   docs.set(uri, {
     uri,
     virtualUri,
     text,
     version,
+    sentVersion: sendVersion,
     ranges: virtualDoc.ranges,
     mappings: virtualDoc.mappings,
     symbols: virtualDoc.symbols,
@@ -683,7 +802,7 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
       jsonrpc: "2.0",
       method: "textDocument/didChange",
       params: {
-        textDocument: { uri: virtualUri, version },
+        textDocument: { uri: virtualUri, version: sendVersion },
         contentChanges: [{ text: virtualDoc.text }],
       },
     });
@@ -697,7 +816,7 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
       textDocument: {
         uri: virtualUri,
         languageId: "python",
-        version,
+        version: sendVersion,
         text: virtualDoc.text,
       },
     },
@@ -825,9 +944,14 @@ function mapPosition(mappings, position, fromKey, toKey, includeEnd = false) {
     if (!from || !to || !containsPosition(position, from, includeEnd)) {
       continue;
     }
+    // The offset inside a multi-line mapping is preserved: the line
+    // shifts by the same amount, and the column offset only applies on
+    // the mapping's first line.
     return {
-      line: to.start.line,
-      character: position.character + to.start.character - from.start.character,
+      line: to.start.line + (position.line - from.start.line),
+      character: position.line === from.start.line
+        ? Math.max(0, position.character + to.start.character - from.start.character)
+        : position.character,
     };
   }
   return null;
@@ -1070,6 +1194,12 @@ function respondEmptyForMethod(method) {
 }
 
 async function handleClientRequest(message) {
+  // Requests sent before initialize completes must wait for pyright to be
+  // ready; sending them straight through skipped the queue.
+  if (message.method !== "initialize" && !pyrightInitialized) {
+    pendingClientRequests.push(message);
+    return;
+  }
   const isCompletion = ["textDocument/completion", "completionItem/resolve"].includes(message.method);
   if (isCompletion) activeCompletions.set(message.id, { cancelled: false });
   switch (message.method) {
@@ -1285,8 +1415,20 @@ function handlePyrightMessage(message) {
     pendingPyrightRequests.delete(message.id);
 
     if (pending.type === "initialize") {
+      if (message.error) {
+        // Initialize failed: requests queued behind it must not hang.
+        rejectPendingClientRequests(message.error);
+        sendToClient({
+          jsonrpc: "2.0",
+          id: pendingClientInitializeId,
+          error: message.error,
+        });
+        pendingClientInitializeId = null;
+        return;
+      }
       pyrightInitialized = true;
       flushPendingNotifications();
+      flushPendingClientRequests();
       sendToClient({
         jsonrpc: "2.0",
         id: pendingClientInitializeId,
@@ -1316,7 +1458,18 @@ function handlePyrightMessage(message) {
     }
 
     if (pending.type === "clientRequest") {
-      const doc = docs.get(pending.docUri);
+      // Map with the document snapshot taken when the request was sent,
+      // not the current document: pyright answered for the virtual
+      // document as it was then, and edits since would shift the mapping.
+      const doc = pending.doc;
+      if (message.error) {
+        sendToClient({
+          jsonrpc: "2.0",
+          id: pending.clientId,
+          error: message.error,
+        });
+        return;
+      }
       let mappedResult = mapResult(message.result, doc);
       if (pending.method === "textDocument/hover") {
         mappedResult = appendPythonContextToHover(
@@ -1367,18 +1520,35 @@ const clientReader = new Reader((message) => {
 
 const pyrightReader = new Reader(handlePyrightMessage);
 
+// When Zed exits abnormally there is no `exit` notification, but stdin
+// closes: kill the children instead of orphaning pyright and the
+// virtualizer.
+function shutdownOnStdinClose() {
+  stopVirtualizer();
+  try {
+    pyright.kill();
+  } catch {
+    // Already dead.
+  }
+  process.exit(0);
+}
+
 process.stdin.on("data", (chunk) => clientReader.push(chunk));
+process.stdin.on("end", shutdownOnStdinClose);
+process.stdin.on("close", shutdownOnStdinClose);
 pyright.stdout.on("data", (chunk) => pyrightReader.push(chunk));
 process.stdin.on("data", () => debug("<-client chunk"));
 pyright.stdout.on("data", () => debug("<-pyright chunk"));
 
 pyright.on("exit", (code, signal) => {
   stopVirtualizer();
-  if (signal === "SIGTERM" || signal === "SIGINT") {
+  if ((signal === "SIGTERM" || signal === "SIGINT") && !shuttingDown) {
     process.exit(0);
     return;
   }
 
-  process.stderr.write(`Pyright exited unexpectedly (code=${code}, signal=${signal}).\n`);
-  process.exit(code ?? 1);
+  const error = new Error(`Pyright exited unexpectedly (code=${code}, signal=${signal}).`);
+  process.stderr.write(`[kedi-embedded-python] ${error.message}\n`);
+  failPendingPyrightRequests(error);
+  setTimeout(() => process.exit(code ?? 1), 50);
 });

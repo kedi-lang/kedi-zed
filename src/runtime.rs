@@ -1,6 +1,27 @@
+use std::{env, fs, path::PathBuf};
+
 use zed_extension_api::{self as zed, process::Command, LanguageServerId, Result};
 
 const BOOTSTRAP: &str = include_str!("../runtime/bootstrap.cjs");
+
+/// Small driver that runs the bundled installer by path. It must stay far
+/// below the Windows 32,767-character limit for a single environment value
+/// or command-line argument: the installer itself is ~28 KB, so it is
+/// written to disk next to this driver instead of being passed `--eval`.
+const BOOTSTRAP_DRIVER: &str = "require(\"./bootstrap.cjs\").ensureRuntime().then(value => process.stdout.write(JSON.stringify(value))).catch(error => { console.error(error.message); process.exitCode = 1; });\n";
+
+/// Writes the bundled installer and its driver into the extension
+/// directory and returns the driver path.
+pub fn write_bootstrap_files() -> Result<PathBuf> {
+    let dir = env::current_dir()
+        .map_err(|error| error.to_string())?
+        .join("runtime");
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    fs::write(dir.join("bootstrap.cjs"), BOOTSTRAP).map_err(|error| error.to_string())?;
+    let driver = dir.join("bootstrap-run.cjs");
+    fs::write(&driver, BOOTSTRAP_DRIVER).map_err(|error| error.to_string())?;
+    Ok(driver)
+}
 
 pub fn managed_python(worktree: &zed::Worktree, id: Option<&LanguageServerId>) -> Result<String> {
     if let Some(id) = id {
@@ -10,12 +31,10 @@ pub fn managed_python(worktree: &zed::Worktree, id: Option<&LanguageServerId>) -
         );
     }
     let result = (|| {
-        let loader = format!(
-            "{BOOTSTRAP}\nmodule.exports.ensureRuntime().then(value => process.stdout.write(JSON.stringify(value))).catch(error => {{ console.error(error.message); process.exitCode = 1; }});"
-        );
+        let driver = write_bootstrap_files()?;
         let output = Command::new(zed::node_binary_path()?)
             .envs(worktree.shell_env())
-            .args(["--eval", &loader])
+            .args([driver.to_string_lossy().into_owned()])
             .output()?;
         if output.status != Some(0) {
             return Err(format!(
@@ -57,10 +76,12 @@ pub fn configured_python(settings: Option<&zed::serde_json::Value>) -> Result<Op
 }
 
 pub fn looks_like_python(path: &str) -> bool {
-    // WASI paths do not recognize Windows separators.
+    // WASI paths do not recognize Windows separators, and the name match
+    // is case-insensitive, so `PYTHON.EXE` and `python.EXE` count too.
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let name = name.strip_suffix(".exe").unwrap_or(name);
-    name.strip_prefix("python").is_some_and(|version| {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    stem.strip_prefix("python").is_some_and(|version| {
         version.is_empty()
             || (version.starts_with(|c: char| c.is_ascii_digit())
                 && version.chars().all(|c| c.is_ascii_digit() || c == '.'))
@@ -91,8 +112,20 @@ pub fn python_from_shebang(source: &str, which: impl Fn(&str) -> Option<String>)
 
 #[cfg(test)]
 mod tests {
-    use super::{configured_python, looks_like_python, python_from_shebang};
+    use super::{
+        configured_python, looks_like_python, python_from_shebang, BOOTSTRAP, BOOTSTRAP_DRIVER,
+    };
     use zed_extension_api::serde_json::json;
+
+    #[test]
+    fn bootstrap_driver_stays_far_below_the_windows_limit() {
+        // The installer itself is ~28 KB, so it is written to disk and run
+        // by path; only this small driver is passed on the command line.
+        assert!(BOOTSTRAP.len() > 20_000);
+        assert!(BOOTSTRAP_DRIVER.len() < 1_000);
+        assert!(BOOTSTRAP_DRIVER.contains("require(\"./bootstrap.cjs\")"));
+        assert!(BOOTSTRAP_DRIVER.contains("ensureRuntime()"));
+    }
 
     #[test]
     fn managed_is_default_and_explicit_host_is_preserved() {
@@ -120,12 +153,16 @@ mod tests {
             "/venv/bin/python",
             "/venv/bin/python3.12",
             "C:\\venv\\Scripts\\python.exe",
+            "C:\\venv\\Scripts\\python.EXE",
+            "PYTHON.EXE",
+            "Python3.12",
         ] {
             assert!(looks_like_python(path), "{path}");
         }
         for path in [
             "/bin/sh",
             "python-lsp-server",
+            "Python-lsp-server",
             "python_config",
             "/bin/node",
             "python/",
