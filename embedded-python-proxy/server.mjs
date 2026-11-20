@@ -40,6 +40,7 @@ pyright.stdin.on("error", (error) => {
 let nextPyrightId = 1;
 let pyrightInitialized = false;
 let pendingNotifications = [];
+let pendingClientRequests = [];
 let pendingClientInitializeId = null;
 let latestConfig = {};
 let warnedVirtualizerFallback = false;
@@ -188,6 +189,7 @@ function failPendingPyrightRequests(error) {
     }
   }
   pendingPyrightRequests.clear();
+  rejectPendingClientRequests(error);
 }
 
 // Shuts the proxy down after pyright is gone: the proxy cannot serve
@@ -388,6 +390,31 @@ function flushPendingNotifications() {
     sendToPyright(message);
   }
   pendingNotifications = [];
+}
+
+// Requests that arrived before initialize completed are replayed in
+// order, after the queued notifications. Each replay runs through the
+// normal request path, so a failure there still answers the client.
+function flushPendingClientRequests() {
+  const queued = pendingClientRequests.splice(0);
+  for (const message of queued) {
+    handleClientRequest(message).catch((error) => {
+      activeCompletions.delete(message.id);
+      sendToClient({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32603, message: String(error) },
+      });
+    });
+  }
+}
+
+function rejectPendingClientRequests(error) {
+  const failure = { code: -32603, message: String(error?.message ?? error) };
+  const queued = pendingClientRequests.splice(0);
+  for (const message of queued) {
+    sendToClient({ jsonrpc: "2.0", id: message.id, error: failure });
+  }
 }
 
 function createVirtualUri(kediUri) {
@@ -1162,6 +1189,12 @@ function respondEmptyForMethod(method) {
 }
 
 async function handleClientRequest(message) {
+  // Requests sent before initialize completes must wait for pyright to be
+  // ready; sending them straight through skipped the queue.
+  if (message.method !== "initialize" && !pyrightInitialized) {
+    pendingClientRequests.push(message);
+    return;
+  }
   const isCompletion = ["textDocument/completion", "completionItem/resolve"].includes(message.method);
   if (isCompletion) activeCompletions.set(message.id, { cancelled: false });
   switch (message.method) {
@@ -1378,9 +1411,8 @@ function handlePyrightMessage(message) {
 
     if (pending.type === "initialize") {
       if (message.error) {
-        // Requests queued behind initialize are rejected when the queue
-        // drains (see flushPendingClientRequests); the client must still
-        // hear the initialize failure itself.
+        // Initialize failed: requests queued behind it must not hang.
+        rejectPendingClientRequests(message.error);
         sendToClient({
           jsonrpc: "2.0",
           id: pendingClientInitializeId,
@@ -1391,6 +1423,7 @@ function handlePyrightMessage(message) {
       }
       pyrightInitialized = true;
       flushPendingNotifications();
+      flushPendingClientRequests();
       sendToClient({
         jsonrpc: "2.0",
         id: pendingClientInitializeId,

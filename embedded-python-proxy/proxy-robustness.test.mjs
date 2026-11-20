@@ -538,6 +538,81 @@ test("didChange versions increase strictly across focus resyncs", async (t) => {
 
 // Z6: when Zed exits abnormally there is no `exit` notification, but
 // stdin closes; pyright and the virtualizer must not be orphaned.
+// Z7: requests sent before initialize completes must wait for pyright
+// to be ready instead of skipping the queue.
+test("requests wait for initialize to complete", async (t) => {
+  await withProxy(
+    t,
+    { pyright: { delayInitializeMs: 400 } },
+    async ({ client, recordPath }) => {
+      const initPromise = client.request("initialize", {
+        processId: null,
+        rootUri: "file:///tmp",
+        capabilities: {},
+      });
+      client.didOpen("file:///tmp/test.kedi", INLINE_TEXT);
+      const hoverPromise = client.request(
+        "textDocument/hover",
+        {
+          textDocument: { uri: "file:///tmp/test.kedi" },
+          position: { line: 2, character: 8 },
+        },
+        15000,
+      );
+      const init = await initPromise;
+      assert.ok(init.result, `expected initialize result, got ${JSON.stringify(init)}`);
+      client.write({ jsonrpc: "2.0", method: "initialized", params: {} });
+      const hover = await hoverPromise;
+      assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      assert.ok(hover.result.contents.value.includes("py-hover"));
+      const events = readLog(recordPath).map((entry) => entry.event);
+      const initResponseAt = events.indexOf("initialize-response");
+      const didOpenAt = events.indexOf("didOpen");
+      const hoverAt = events.indexOf("hover");
+      assert.ok(initResponseAt !== -1 && hoverAt !== -1, `log: ${events}`);
+      assert.ok(
+        hoverAt > initResponseAt,
+        `hover must reach pyright only after initialize completes (log: ${events})`,
+      );
+      assert.ok(
+        didOpenAt !== -1 && didOpenAt < hoverAt,
+        `didOpen must reach pyright before the queued hover (log: ${events})`,
+      );
+      client.assertNoCrash();
+    },
+  );
+});
+
+test("queued requests are rejected when initialize fails", async (t) => {
+  await withProxy(
+    t,
+    { pyright: { errorOnInitialize: true } },
+    async ({ client }) => {
+      const initPromise = client.request("initialize", {
+        processId: null,
+        rootUri: "file:///tmp",
+        capabilities: {},
+      });
+      const hoverPromise = client.request(
+        "textDocument/hover",
+        {
+          textDocument: { uri: "file:///tmp/test.kedi" },
+          position: { line: 2, character: 8 },
+        },
+        15000,
+      );
+      const init = await initPromise;
+      assert.ok(init.error, `expected an initialize error, got ${JSON.stringify(init)}`);
+      const hover = await hoverPromise;
+      assert.ok(
+        hover.error,
+        `expected the queued hover to be rejected, got ${JSON.stringify(hover)}`,
+      );
+      client.assertNoCrash();
+    },
+  );
+});
+
 test("closing stdin kills pyright and the virtualizer", async (t) => {
   await withProxy(
     t,
