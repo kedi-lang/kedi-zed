@@ -540,6 +540,43 @@ test("didChange versions increase strictly across focus resyncs", async (t) => {
 // stdin closes; pyright and the virtualizer must not be orphaned.
 // Z7: requests sent before initialize completes must wait for pyright
 // to be ready instead of skipping the queue.
+// Z10: mapPosition() collapsed every multi-line mapping to its first
+// line and shifted the column on every line. The real virtualizer only
+// emits single-line mappings, so this is latent, but the formula must
+// still be right in both directions.
+test("hover ranges map across multi-line mappings", async (t) => {
+  await withProxy(
+    t,
+    {
+      virtualizer: { mode: "multiline" },
+      pyright: {
+        hoverRange: {
+          start: { line: 2, character: 1 },
+          end: { line: 2, character: 4 },
+        },
+      },
+    },
+    async ({ client, recordPath }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", FENCED_TEXT);
+      const hover = await client.request("textDocument/hover", {
+        textDocument: { uri: "file:///tmp/test.kedi" },
+        position: { line: 4, character: 3 },
+      });
+      assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      // Source (4,3) is on the mapping's third line: virtual (2,3).
+      const hoverLog = readLog(recordPath).find((entry) => entry.event === "hover");
+      assert.deepEqual(hoverLog?.position, { line: 2, character: 3 });
+      // Virtual (2,1)-(2,4) maps back to source (4,1)-(4,4).
+      assert.deepEqual(hover.result.range, {
+        start: { line: 4, character: 1 },
+        end: { line: 4, character: 4 },
+      });
+      client.assertNoCrash();
+    },
+  );
+});
+
 test("requests wait for initialize to complete", async (t) => {
   await withProxy(
     t,

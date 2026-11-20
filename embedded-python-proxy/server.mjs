@@ -944,9 +944,14 @@ function mapPosition(mappings, position, fromKey, toKey, includeEnd = false) {
     if (!from || !to || !containsPosition(position, from, includeEnd)) {
       continue;
     }
+    // The offset inside a multi-line mapping is preserved: the line
+    // shifts by the same amount, and the column offset only applies on
+    // the mapping's first line.
     return {
-      line: to.start.line,
-      character: position.character + to.start.character - from.start.character,
+      line: to.start.line + (position.line - from.start.line),
+      character: position.line === from.start.line
+        ? Math.max(0, position.character + to.start.character - from.start.character)
+        : position.character,
     };
   }
   return null;
