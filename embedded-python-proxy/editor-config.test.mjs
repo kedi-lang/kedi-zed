@@ -8,7 +8,13 @@ test('Python fence scaffolding uses an explicit name, not a backtick trigger', (
   assert.ok(Object.values(snippets).every(item => [item.prefix].flat().every(prefix => !prefix.includes('`'))));
 });
 
-// Z9: tree-sitter queries are last-match-wins, so the generic captures
+// Z11: assignment blocks open a fenced Python block like the other
+// block statements, so they indent and dedent the same way.
+test('indents.scm covers assignment_block_stmt', () => {
+  const indents = readFileSync(new URL('../languages/kedi/indents.scm', import.meta.url), 'utf8');
+  assert.ok(indents.includes('(assignment_block_stmt)'));
+  assert.ok(indents.includes('(assignment_block_stmt "```" "```" @end)'));
+});
 // must come before the specific node rules, or they override them.
 test('highlights.scm puts generic captures before specific rules', () => {
   const highlights = readFileSync(new URL('../languages/kedi/highlights.scm', import.meta.url), 'utf8');
