@@ -53,10 +53,7 @@ fn embedded_python_proxy_command(
             "KEDI_PYTHON_VIRTUALIZER_COMMAND",
             virtualizer_command.to_string(),
         )
-        .env(
-            "KEDI_PYTHON_VIRTUALIZER_ARGS",
-            virtualizer_args.to_string(),
-        )
+        .env("KEDI_PYTHON_VIRTUALIZER_ARGS", virtualizer_args.to_string())
         .envs(extra_env)
         .args([
             proxy_path.to_string_lossy().into_owned(),
@@ -235,10 +232,8 @@ impl KediExtension {
 
         if let Some(binary_settings) = lsp_settings.binary {
             if let Some(path) = binary_settings.path {
-                let arguments = kedi_lsp_binary_args(
-                    &path,
-                    binary_settings.arguments.unwrap_or_default(),
-                );
+                let arguments =
+                    kedi_lsp_binary_args(&path, binary_settings.arguments.unwrap_or_default());
                 let mut command = Command::new(path).envs(shell_env.clone()).args(arguments);
                 if let Some(env) = binary_settings.env {
                     command = command.envs(env);
@@ -405,30 +400,26 @@ mod proxy_launch_tests {
             assert!(!value.contains(EMBEDDED_PYTHON_PROXY_SOURCE));
             assert!(!value.contains(PYTHON_COMPLETION_SOURCE));
         }
-        assert!(!command.env.iter().any(|(name, _)| name
-            == "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE"
-            || name == "KEDI_PYTHON_COMPLETION_SOURCE"));
+        assert!(!command
+            .env
+            .iter()
+            .any(|(name, _)| name == "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE"
+                || name == "KEDI_PYTHON_COMPLETION_SOURCE"));
     }
 
     #[test]
     fn proxy_scripts_are_written_to_disk() {
-        let root = std::env::temp_dir()
-            .join(format!("kedi-zed-proxy-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("kedi-zed-proxy-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let path = write_proxy_scripts(&root).unwrap();
-        assert_eq!(
-            path,
-            root.join("embedded-python-proxy").join("server.mjs")
-        );
+        assert_eq!(path, root.join("embedded-python-proxy").join("server.mjs"));
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             EMBEDDED_PYTHON_PROXY_SOURCE
         );
         assert_eq!(
-            std::fs::read_to_string(
-                root.join("embedded-python-proxy").join("completion.mjs")
-            )
-            .unwrap(),
+            std::fs::read_to_string(root.join("embedded-python-proxy").join("completion.mjs"))
+                .unwrap(),
             PYTHON_COMPLETION_SOURCE
         );
         let _ = std::fs::remove_dir_all(&root);
@@ -523,10 +514,7 @@ mod binary_path_tests {
     #[test]
     fn python_interpreter_path_runs_the_server_module() {
         assert_eq!(
-            kedi_lsp_binary_args(
-                "/usr/bin/python3",
-                vec!["--port".into(), "9000".into()]
-            ),
+            kedi_lsp_binary_args("/usr/bin/python3", vec!["--port".into(), "9000".into()]),
             ["-m", "kedi.lsp.server", "--port", "9000"]
         );
         assert_eq!(
