@@ -745,11 +745,20 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
   }
   const previous = docs.get(uri);
 
+  // The virtual document version sent to pyright must increase strictly:
+  // a focus change rebuilds the virtual text for the same client version,
+  // and resending that version as didChange violates the LSP version
+  // contract. The proxy owns the virtual versions, so it bumps them.
+  const sendVersion = previous
+    ? Math.max(version, (previous.sentVersion ?? version) + 1)
+    : version;
+
   docs.set(uri, {
     uri,
     virtualUri,
     text,
     version,
+    sentVersion: sendVersion,
     ranges: virtualDoc.ranges,
     mappings: virtualDoc.mappings,
     symbols: virtualDoc.symbols,
@@ -766,7 +775,7 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
       jsonrpc: "2.0",
       method: "textDocument/didChange",
       params: {
-        textDocument: { uri: virtualUri, version },
+        textDocument: { uri: virtualUri, version: sendVersion },
         contentChanges: [{ text: virtualDoc.text }],
       },
     });
@@ -780,7 +789,7 @@ async function syncDocumentToPyright(uri, text, version, token, focusLine = null
       textDocument: {
         uri: virtualUri,
         languageId: "python",
-        version,
+        version: sendVersion,
         text: virtualDoc.text,
       },
     },

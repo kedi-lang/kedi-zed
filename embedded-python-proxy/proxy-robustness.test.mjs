@@ -496,6 +496,44 @@ test("pyright initialize errors are forwarded to the client", async (t) => {
 // Z4: a hung virtualizer must not block the event loop forever. The
 // persistent path times out, and the spawnSync fallback must time out too
 // instead of hanging indefinitely (on the base commit it does).
+// Z5: a focus change rebuilds the virtual text for the same client
+// version; the didChange sent for it must carry a strictly larger version
+// than the didOpen, or pyright sees two versions with the same number.
+test("didChange versions increase strictly across focus resyncs", async (t) => {
+  await withProxy(
+    t,
+    { virtualizer: { mode: "focus" } },
+    async ({ client, recordPath }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", FENCED_TEXT);
+      const hover = await client.request(
+        "textDocument/hover",
+        {
+          textDocument: { uri: "file:///tmp/test.kedi" },
+          position: { line: 3, character: 3 },
+        },
+        15000,
+      );
+      assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      await waitFor(
+        () => readLog(recordPath).some((entry) => entry.event === "didChange"),
+        5000,
+        "didChange to reach pyright",
+      );
+      const events = readLog(recordPath);
+      const didOpen = events.find((entry) => entry.event === "didOpen");
+      const didChange = events.find((entry) => entry.event === "didChange");
+      assert.ok(didOpen, "expected pyright to receive didOpen");
+      assert.ok(didChange, "expected pyright to receive didChange after the focus resync");
+      assert.ok(
+        didChange.version > didOpen.version,
+        `didChange version ${didChange.version} must exceed didOpen version ${didOpen.version}`,
+      );
+      client.assertNoCrash();
+    },
+  );
+});
+
 test("hung virtualizer does not block the proxy forever (spawnSync timeout)", async (t) => {
   await withProxy(
     t,
