@@ -1482,7 +1482,22 @@ const clientReader = new Reader((message) => {
 
 const pyrightReader = new Reader(handlePyrightMessage);
 
+// When Zed exits abnormally there is no `exit` notification, but stdin
+// closes: kill the children instead of orphaning pyright and the
+// virtualizer.
+function shutdownOnStdinClose() {
+  stopVirtualizer();
+  try {
+    pyright.kill();
+  } catch {
+    // Already dead.
+  }
+  process.exit(0);
+}
+
 process.stdin.on("data", (chunk) => clientReader.push(chunk));
+process.stdin.on("end", shutdownOnStdinClose);
+process.stdin.on("close", shutdownOnStdinClose);
 pyright.stdout.on("data", (chunk) => pyrightReader.push(chunk));
 process.stdin.on("data", () => debug("<-client chunk"));
 pyright.stdout.on("data", () => debug("<-pyright chunk"));

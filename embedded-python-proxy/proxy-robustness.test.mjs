@@ -171,6 +171,8 @@ class Client {
     this.exitPromise = new Promise((resolve) => {
       child.on("exit", (code, signal) => resolve({ code, signal }));
     });
+    // Writes after stdin ends (cleanup paths) must not crash the test.
+    child.stdin.on("error", () => {});
     child.stdout.on("data", (chunk) => {
       this.buffer = Buffer.concat([this.buffer, chunk]);
       while (true) {
@@ -528,6 +530,37 @@ test("didChange versions increase strictly across focus resyncs", async (t) => {
       assert.ok(
         didChange.version > didOpen.version,
         `didChange version ${didChange.version} must exceed didOpen version ${didOpen.version}`,
+      );
+      client.assertNoCrash();
+    },
+  );
+});
+
+// Z6: when Zed exits abnormally there is no `exit` notification, but
+// stdin closes; pyright and the virtualizer must not be orphaned.
+test("closing stdin kills pyright and the virtualizer", async (t) => {
+  await withProxy(
+    t,
+    {},
+    async ({ client, child, pyrightPidPath, virtualizerPidPath }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", INLINE_TEXT);
+      await waitFor(
+        () => fs.existsSync(virtualizerPidPath) && fs.existsSync(pyrightPidPath),
+        5000,
+        "children to spawn",
+      );
+      child.stdin.end();
+      const exit = await Promise.race([
+        client.exitPromise,
+        new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+      assert.ok(exit, "proxy should exit when stdin closes");
+      assert.equal(exit.code, 0);
+      await waitFor(
+        () => !pidAlive(pyrightPidPath) && !pidAlive(virtualizerPidPath),
+        3000,
+        "children to die",
       );
       client.assertNoCrash();
     },
