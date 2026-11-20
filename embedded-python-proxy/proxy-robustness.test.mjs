@@ -35,6 +35,10 @@ function fakePyrightScript(behavior) {
     "function handle(msg) {",
     "  if (msg.method === 'initialize') {",
     "    log('initialize-request');",
+    "    if (behavior.errorOnInitialize) {",
+    "      write({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'init-boom' } });",
+    "      return;",
+    "    }",
     "    const respond = () => {",
     "      log('initialize-response');",
     "      write({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { hoverProvider: true, definitionProvider: true, referencesProvider: true } } });",
@@ -110,8 +114,10 @@ function fakeVirtualizerScript(behavior) {
     "  if (behavior.mode === 'shift') {",
     "    const shifted = text.includes('v2marker');",
     "    const sourceLine = shifted ? 5 : 3;",
+    "    // The virtual text must differ too, or the proxy correctly sends",
+    "    // no didChange and pyright never releases the held hover.",
     "    return {",
-    "      text: 'from typing import Any\\n\\nfoo: int = ...\\nfoo\\n',",
+    "      text: shifted ? 'from typing import Any\\n\\nfoo: int = ...\\nfoo # v2\\n' : 'from typing import Any\\n\\nfoo: int = ...\\nfoo\\n',",
     "      ranges: [{ kind: 'fenced', range: { start: { line: 3, character: 2 }, end: { line: 3, character: 7 } }, sourceRange: { start: { line: 3, character: 2 }, end: { line: 3, character: 7 } }, virtualRange: { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } }, text: 'foo' }],",
     "      mappings: [{ kind: 'fenced', sourceRange: { start: { line: sourceLine, character: 2 }, end: { line: sourceLine, character: 7 } }, virtualRange: { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } } }],",
     "      symbols: []",
@@ -273,6 +279,7 @@ async function withProxy(t, options, fn) {
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
+      KEDI_DEBUG_EMBEDDED_PYTHON: "1",
       KEDI_PYTHON_VIRTUALIZER_COMMAND: options.virtualizerCommand ?? process.execPath,
       KEDI_PYTHON_VIRTUALIZER_ARGS: JSON.stringify(
         options.virtualizerArgs ?? [virtualizerPath],
@@ -401,6 +408,86 @@ test("virtualizer spawn failure falls back to the blanked document", async (t) =
         position: { line: 3, character: 3 },
       });
       assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      client.assertNoCrash();
+    },
+  );
+});
+
+// Z3: pyright answers for the virtual document as it was when the request
+// was sent, so the reply must be mapped with that snapshot, not the
+// document as edited since.
+test("pyright replies are mapped with the request-time document snapshot", async (t) => {
+  await withProxy(
+    t,
+    { pyright: { holdHoverUntilDidChange: true }, virtualizer: { mode: "shift" } },
+    async ({ client, recordPath }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", FENCED_TEXT);
+      const hoverPromise = client.request(
+        "textDocument/hover",
+        {
+          textDocument: { uri: "file:///tmp/test.kedi" },
+          position: { line: 3, character: 3 },
+        },
+        // Cold virtualizer startup is slow; the hover waits for it, then
+        // for the held pyright reply after the edit.
+        15000,
+      );
+      // Wait until the hover has reached pyright (so it was resolved
+      // against the v1 snapshot), then edit the document while pyright is
+      // still working on it: the new virtual document maps the same
+      // virtual range to source line 5 instead of line 3.
+      await waitFor(
+        () => readLog(recordPath).some((entry) => entry.event === "hover"),
+        5000,
+        "hover to reach pyright",
+      );
+      client.didChange(
+        "file:///tmp/test.kedi",
+        "@x():\n  = ```\n  foo = 1\n  foo\n  # v2marker\n  ```\n",
+        2,
+      );
+      const hover = await hoverPromise;
+      assert.ok(hover.result, `expected a hover result, got ${JSON.stringify(hover)}`);
+      assert.equal(hover.result.range.start.line, 3);
+      assert.equal(hover.result.range.start.character, 2);
+      assert.equal(hover.result.range.end.line, 3);
+      assert.equal(hover.result.range.end.character, 7);
+      client.assertNoCrash();
+    },
+  );
+});
+
+test("pyright JSON-RPC errors are forwarded to the client", async (t) => {
+  await withProxy(
+    t,
+    { pyright: { errorOnHover: true } },
+    async ({ client }) => {
+      await client.initialize();
+      client.didOpen("file:///tmp/test.kedi", INLINE_TEXT);
+      const hover = await client.request("textDocument/hover", {
+        textDocument: { uri: "file:///tmp/test.kedi" },
+        position: { line: 2, character: 8 },
+      });
+      assert.ok(hover.error, `expected a JSON-RPC error, got ${JSON.stringify(hover)}`);
+      assert.equal(hover.error.message, "boom");
+      client.assertNoCrash();
+    },
+  );
+});
+
+test("pyright initialize errors are forwarded to the client", async (t) => {
+  await withProxy(
+    t,
+    { pyright: { errorOnInitialize: true } },
+    async ({ client }) => {
+      const response = await client.request("initialize", {
+        processId: null,
+        rootUri: "file:///tmp",
+        capabilities: {},
+      });
+      assert.ok(response.error, `expected a JSON-RPC error, got ${JSON.stringify(response)}`);
+      assert.equal(response.error.message, "init-boom");
       client.assertNoCrash();
     },
   );

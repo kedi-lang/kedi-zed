@@ -1364,6 +1364,18 @@ function handlePyrightMessage(message) {
     pendingPyrightRequests.delete(message.id);
 
     if (pending.type === "initialize") {
+      if (message.error) {
+        // Requests queued behind initialize are rejected when the queue
+        // drains (see flushPendingClientRequests); the client must still
+        // hear the initialize failure itself.
+        sendToClient({
+          jsonrpc: "2.0",
+          id: pendingClientInitializeId,
+          error: message.error,
+        });
+        pendingClientInitializeId = null;
+        return;
+      }
       pyrightInitialized = true;
       flushPendingNotifications();
       sendToClient({
@@ -1395,7 +1407,18 @@ function handlePyrightMessage(message) {
     }
 
     if (pending.type === "clientRequest") {
-      const doc = docs.get(pending.docUri);
+      // Map with the document snapshot taken when the request was sent,
+      // not the current document: pyright answered for the virtual
+      // document as it was then, and edits since would shift the mapping.
+      const doc = pending.doc;
+      if (message.error) {
+        sendToClient({
+          jsonrpc: "2.0",
+          id: pending.clientId,
+          error: message.error,
+        });
+        return;
+      }
       let mappedResult = mapResult(message.result, doc);
       if (pending.method === "textDocument/hover") {
         mappedResult = appendPythonContextToHover(
