@@ -27,6 +27,15 @@ pyright.stderr.on("data", (chunk) => {
   process.stderr.write(chunk);
 });
 
+// A spawn failure or a broken stdin pipe must not crash the proxy with an
+// uncaught EPIPE: reject the pending requests cleanly and shut down.
+pyright.on("error", (error) => {
+  shutdownProxy(new Error(`pyright failed to start: ${error.message}`));
+});
+pyright.stdin.on("error", (error) => {
+  shutdownProxy(new Error(`pyright stdin failed: ${error.message}`));
+});
+
 let nextPyrightId = 1;
 let pyrightInitialized = false;
 let pendingNotifications = [];
@@ -161,6 +170,47 @@ function rejectPendingVirtualizerRequests(error) {
   pendingVirtualizerRequests.clear();
 }
 
+let shuttingDown = false;
+
+// Rejects every request still waiting on pyright with a JSON-RPC error, so
+// a dead backend fails the client request instead of hanging it.
+function failPendingPyrightRequests(error) {
+  const failure = { code: -32603, message: String(error?.message ?? error) };
+  for (const pending of pendingPyrightRequests.values()) {
+    if (pending.type === "completion") {
+      void sendCompletionResponse({ error: failure }, pending);
+    } else if (pending.type === "clientRequest") {
+      sendToClient({ jsonrpc: "2.0", id: pending.clientId, error: failure });
+    } else if (pending.type === "initialize" && pendingClientInitializeId !== null) {
+      sendToClient({ jsonrpc: "2.0", id: pendingClientInitializeId, error: failure });
+      pendingClientInitializeId = null;
+    }
+  }
+  pendingPyrightRequests.clear();
+}
+
+// Shuts the proxy down after pyright is gone: the proxy cannot serve
+// requests without it. Pending replies are sent first, then the process
+// exits after a short drain so the error responses can flush.
+function shutdownProxy(error) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  if (error) {
+    process.stderr.write(`[kedi-embedded-python] ${error.message}\n`);
+    failPendingPyrightRequests(error);
+    rejectPendingVirtualizerRequests(error);
+  }
+  stopVirtualizer();
+  try {
+    pyright.kill();
+  } catch {
+    // Already dead.
+  }
+  setTimeout(() => process.exit(1), 100);
+}
+
 function stopVirtualizer() {
   if (!virtualizer) {
     return;
@@ -181,13 +231,42 @@ function ensureVirtualizer() {
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
   });
+  const child = virtualizer;
 
   virtualizer.stderr.on("data", (chunk) => {
     debug("virtualizer stderr", chunk.toString("utf8").trim());
   });
   virtualizer.stdout.on("data", handleVirtualizerData);
+  // A spawn failure or a broken stdin pipe must reject the pending
+  // virtualizer requests instead of crashing the proxy, and the next
+  // request respawns the virtualizer.
+  virtualizer.on("error", (error) => {
+    debug("virtualizer error", String(error));
+    if (virtualizer === child) {
+      virtualizer = null;
+    }
+    rejectPendingVirtualizerRequests(error);
+  });
+  virtualizer.stdin.on("error", (error) => {
+    debug("virtualizer stdin error", String(error));
+    if (virtualizer === child) {
+      virtualizer = null;
+      try {
+        child.kill();
+      } catch {
+        // Already dead.
+      }
+    }
+    rejectPendingVirtualizerRequests(error);
+  });
   virtualizer.on("exit", (code, signal) => {
     debug("virtualizer exited", `code=${code}`, `signal=${signal}`);
+    // Ignore exits of a child that has already been replaced: its pending
+    // requests were rejected by the error handler or the stop that
+    // replaced it, and the new child owns the current requests.
+    if (virtualizer !== child) {
+      return;
+    }
     virtualizer = null;
     rejectPendingVirtualizerRequests(
       new Error(`virtualizer exited (code=${code}, signal=${signal})`),
@@ -1374,11 +1453,13 @@ pyright.stdout.on("data", () => debug("<-pyright chunk"));
 
 pyright.on("exit", (code, signal) => {
   stopVirtualizer();
-  if (signal === "SIGTERM" || signal === "SIGINT") {
+  if ((signal === "SIGTERM" || signal === "SIGINT") && !shuttingDown) {
     process.exit(0);
     return;
   }
 
-  process.stderr.write(`Pyright exited unexpectedly (code=${code}, signal=${signal}).\n`);
-  process.exit(code ?? 1);
+  const error = new Error(`Pyright exited unexpectedly (code=${code}, signal=${signal}).`);
+  process.stderr.write(`[kedi-embedded-python] ${error.message}\n`);
+  failPendingPyrightRequests(error);
+  setTimeout(() => process.exit(code ?? 1), 50);
 });
