@@ -234,6 +234,12 @@
 (model_directive
   value: (inline_python_expr) @embedded)
 
+(directive_value) @text.literal
+(fallback_directive
+  value: (inline_python_expr) @embedded)
+(fallback_entry
+  value: (inline_python_expr) @embedded)
+
 (effort_directive
   value: (effort_plain_value) @text.literal)
 
@@ -341,6 +347,7 @@
   "agent"
   "adapter"
   "model"
+  "fallback"
   "effort"
   "approval"
   "codemode"
