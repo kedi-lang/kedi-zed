@@ -60,13 +60,13 @@ test('highlights.scm covers hooks directives and type literals', () => {
 
 // Z9: the managed runtime must pin the same tree-sitter-kedi the
 // stable Kedi release pins.
-test('bootstrap pins tree-sitter-kedi 0.4.9', () => {
+test('bootstrap and README pin the compatible published runtime', () => {
   const bootstrap = readFileSync(new URL('../runtime/bootstrap.cjs', import.meta.url), 'utf8');
-  assert.ok(bootstrap.includes('tree-sitter-kedi==0.4.9'));
-  assert.ok(!bootstrap.includes('tree-sitter-kedi==0.4.6'));
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.ok(readme.includes('tree-sitter-kedi==0.4.9'));
-  assert.ok(!readme.includes('tree-sitter-kedi==0.4.6'));
+  for (const spec of ['kedi==0.1.5', 'tree-sitter-kedi==0.4.7', 'kedi-debugger==0.1.1']) {
+    assert.ok(bootstrap.includes(spec), `bootstrap missing ${spec}`);
+    assert.ok(readme.includes(spec), `README missing ${spec}`);
+  }
 });
 
 // Z8: every task has a Unix (sh) and a Windows (PowerShell) variant.
