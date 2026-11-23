@@ -1,3 +1,81 @@
+; Generic captures first: tree-sitter queries are last-match-wins, so
+; these broad rules must come before the specific node rules below,
+; or they would override them.
+[
+  "auto"
+  "optimize"
+  "evolve"
+  "agent"
+  "adapter"
+  "model"
+  "fallback"
+  "effort"
+  "approval"
+  "codemode"
+  "history"
+  "instructions"
+  "mcp"
+  "settings"
+  "artifacts"
+  "output"
+  "subagent"
+  "max_agents"
+  "workflow"
+  "mode"
+  "tools"
+  "profile"
+  "capability"
+  "defer"
+  "use"
+  "case"
+  "data"
+  "test_data"
+  "metric"
+  "if"
+  "else"
+  "loop"
+  "task"
+  "await"
+  "send"
+  "interrupt"
+  "task_group"
+  "process"
+  "map"
+] @keyword
+
+[
+  "import"
+  "export"
+] @operator
+
+"package" @keyword
+
+[
+  "="
+  ":="
+  "->"
+  "|"
+] @operator
+
+[
+  "@"
+  "~"
+  "<"
+  ">"
+  "```"
+  "`"
+] @punctuation.special
+
+[
+  "("
+  ")"
+  "["
+  "]"
+  ","
+  ":"
+  "*"
+] @punctuation.delimiter
+
 (line_comment) @comment
 (return_stmt "=" @keyword)
 (return_block_stmt "=" @keyword)
@@ -73,6 +151,10 @@
 (type_apply
   name: (identifier) @type)
 
+(type_number) @number
+
+(type_ellipsis) @constant
+
 (validation_block
   kw: (validation_keyword) @keyword
   procedure: (identifier) @function)
@@ -135,6 +217,19 @@
   value: (settings_plain_value) @text.literal)
 
 (history_field
+  value: (inline_python_expr) @embedded)
+
+(hooks_directive
+  ">" @operator)
+
+(hooks_directive "hooks" @keyword)
+
+(hooks_plain_value) @constant
+
+(hooks_field
+  name: (identifier) @property)
+
+(hooks_field
   value: (inline_python_expr) @embedded)
 
 (skills_directive
@@ -339,77 +434,3 @@
 
 (raw_invoke_stmt
   "<<" @keyword)
-
-[
-  "auto"
-  "optimize"
-  "evolve"
-  "agent"
-  "adapter"
-  "model"
-  "fallback"
-  "effort"
-  "approval"
-  "codemode"
-  "history"
-  "instructions"
-  "mcp"
-  "settings"
-  "artifacts"
-  "output"
-  "subagent"
-  "max_agents"
-  "workflow"
-  "mode"
-  "tools"
-  "profile"
-  "capability"
-  "defer"
-  "use"
-  "case"
-  "data"
-  "test_data"
-  "metric"
-  "if"
-  "else"
-  "loop"
-  "task"
-  "await"
-  "send"
-  "interrupt"
-  "task_group"
-  "process"
-  "map"
-] @keyword
-
-[
-  "import"
-  "export"
-] @operator
-
-"package" @keyword
-
-[
-  "="
-  ":="
-  "->"
-  "|"
-] @operator
-
-[
-  "@"
-  "~"
-  "<"
-  ">"
-  "```"
-  "`"
-] @punctuation.special
-
-[
-  "("
-  ")"
-  "["
-  "]"
-  ","
-  ":"
-] @punctuation.delimiter

@@ -4,7 +4,7 @@
     "command": "sh",
     "args": [
       "-c",
-      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -I -m kedi \"$@\"",
       "kedi",
       "$ZED_FILE"
     ],
@@ -18,7 +18,7 @@
     "command": "sh",
     "args": [
       "-c",
-      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -I -m kedi \"$@\"",
       "kedi",
       "$ZED_FILE",
       "--test"
@@ -33,8 +33,52 @@
     "command": "sh",
     "args": [
       "-c",
-      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -m kedi \"$@\"",
+      "home=$KEDI_HOME; [ -n \"$home\" ] || home=$HOME/.kedi; if command -v kedi >/dev/null 2>&1; then exec kedi \"$@\"; fi; exec \"$home/editor-venv/bin/python\" -I -m kedi \"$@\"",
       "kedi",
+      "$ZED_FILE",
+      "--eval"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-eval"
+    ]
+  },
+  {
+    "label": "kedi: run $ZED_FILENAME (Windows)",
+    "command": "powershell",
+    "args": [
+      "-NoProfile",
+      "-Command",
+      "$kediHome = $env:KEDI_HOME; if (-not $kediHome) { $kediHome = Join-Path $env:USERPROFILE '.kedi' }; if (Get-Command kedi -ErrorAction SilentlyContinue) { & kedi $args } else { & (Join-Path $kediHome 'editor-venv\\Scripts\\python.exe') -I -m kedi $args }",
+      "$ZED_FILE"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-file"
+    ]
+  },
+  {
+    "label": "kedi: test $ZED_FILENAME (Windows)",
+    "command": "powershell",
+    "args": [
+      "-NoProfile",
+      "-Command",
+      "$kediHome = $env:KEDI_HOME; if (-not $kediHome) { $kediHome = Join-Path $env:USERPROFILE '.kedi' }; if (Get-Command kedi -ErrorAction SilentlyContinue) { & kedi $args } else { & (Join-Path $kediHome 'editor-venv\\Scripts\\python.exe') -I -m kedi $args }",
+      "$ZED_FILE",
+      "--test"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": [
+      "kedi-test"
+    ]
+  },
+  {
+    "label": "kedi: eval $ZED_FILENAME (Windows)",
+    "command": "powershell",
+    "args": [
+      "-NoProfile",
+      "-Command",
+      "$kediHome = $env:KEDI_HOME; if (-not $kediHome) { $kediHome = Join-Path $env:USERPROFILE '.kedi' }; if (Get-Command kedi -ErrorAction SilentlyContinue) { & kedi $args } else { & (Join-Path $kediHome 'editor-venv\\Scripts\\python.exe') -I -m kedi $args }",
       "$ZED_FILE",
       "--eval"
     ],

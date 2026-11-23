@@ -17,8 +17,49 @@ const KEDI_PYTHON_DOCSTRINGS_LSP_ID: &str = "kedi-python-docstrings";
 const PYRIGHT_PACKAGE_NAME: &str = "pyright";
 const EMBEDDED_PYTHON_PROXY_SOURCE: &str = include_str!("../embedded-python-proxy/server.mjs");
 const PYTHON_COMPLETION_SOURCE: &str = include_str!("../embedded-python-proxy/completion.mjs");
-const EMBEDDED_PYTHON_PROXY_ENV: &str = "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE";
-const EMBEDDED_PYTHON_PROXY_LOADER: &str = "await import(\"data:text/javascript;charset=utf-8,\" + encodeURIComponent(process.env.KEDI_EMBEDDED_PYTHON_PROXY_SOURCE))";
+
+/// Writes the embedded-Python proxy scripts to the extension directory and
+/// returns the path of `server.mjs`.
+///
+/// The scripts must be run by path, not passed through the environment:
+/// `server.mjs` alone is ~40 KB, over the Windows per-variable limit of
+/// 32,767 characters, so the proxy could not start on Windows at all.
+fn write_proxy_scripts(extension_root: &Path) -> Result<PathBuf> {
+    let dir = extension_root.join("embedded-python-proxy");
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    fs::write(dir.join("server.mjs"), EMBEDDED_PYTHON_PROXY_SOURCE)
+        .map_err(|error| error.to_string())?;
+    fs::write(dir.join("completion.mjs"), PYTHON_COMPLETION_SOURCE)
+        .map_err(|error| error.to_string())?;
+    Ok(dir.join("server.mjs"))
+}
+
+/// Builds the Node command that runs the embedded-Python proxy by path.
+/// The only proxy-specific environment values are the small virtualizer
+/// command/args; the proxy sources themselves are never put in the
+/// environment (see `write_proxy_scripts`).
+fn embedded_python_proxy_command(
+    node: String,
+    proxy_path: &Path,
+    pyright_entrypoint: &str,
+    virtualizer_command: &str,
+    virtualizer_args: &str,
+    shell_env: Vec<(String, String)>,
+    extra_env: impl IntoIterator<Item = (String, String)>,
+) -> Command {
+    Command::new(node)
+        .envs(shell_env)
+        .env(
+            "KEDI_PYTHON_VIRTUALIZER_COMMAND",
+            virtualizer_command.to_string(),
+        )
+        .env("KEDI_PYTHON_VIRTUALIZER_ARGS", virtualizer_args.to_string())
+        .envs(extra_env)
+        .args([
+            proxy_path.to_string_lossy().into_owned(),
+            pyright_entrypoint.to_string(),
+        ])
+}
 
 struct KediExtension;
 
@@ -54,6 +95,20 @@ impl EmbeddedPythonSettings {
             .map(|s| s.to_string());
 
         Self { package_version }
+    }
+}
+
+/// Arguments for running `binary.path` as the Kedi LSP server. A path
+/// naming a Python interpreter runs the server module, with the
+/// configured arguments after it; any other executable runs as-is with
+/// the configured arguments.
+fn kedi_lsp_binary_args(path: &str, arguments: Vec<String>) -> Vec<String> {
+    if runtime::looks_like_python(path) {
+        let mut args = vec!["-m".to_string(), "kedi.lsp.server".to_string()];
+        args.extend(arguments);
+        args
+    } else {
+        arguments
     }
 }
 
@@ -109,7 +164,11 @@ impl KediExtension {
             if let Some(interpreter) = Self::python_from_shebang(&kedi_lsp_path, worktree) {
                 return Ok(Command::new(interpreter).envs(worktree.shell_env()));
             }
-            return Err("Cannot identify Python from the custom Kedi server executable. Set lsp.kedi-lsp.settings.python_path for the language helpers and debugger.".into());
+            // A custom server path that is neither a Python interpreter
+            // nor a script with a Python shebang is a standalone server
+            // executable: the language helpers and the debugger still need
+            // a Python interpreter, so they fall back to the managed
+            // environment instead of failing.
         }
         Ok(Command::new(runtime::managed_python(worktree, id)?)
             .envs(worktree.shell_env())
@@ -173,10 +232,9 @@ impl KediExtension {
 
         if let Some(binary_settings) = lsp_settings.binary {
             if let Some(path) = binary_settings.path {
-                let mut command = Command::new(path).envs(shell_env.clone());
-                if let Some(arguments) = binary_settings.arguments {
-                    command = command.args(arguments);
-                }
+                let arguments =
+                    kedi_lsp_binary_args(&path, binary_settings.arguments.unwrap_or_default());
+                let mut command = Command::new(path).envs(shell_env.clone()).args(arguments);
                 if let Some(env) = binary_settings.env {
                     command = command.envs(env);
                 }
@@ -215,25 +273,17 @@ impl KediExtension {
         ]);
         let virtualizer_args =
             zed::serde_json::to_string(&virtualizer_args).map_err(|error| error.to_string())?;
+        let proxy_path = write_proxy_scripts(&Self::extension_root()?)?;
 
-        let mut command = Command::new(node)
-            .envs(shell_env)
-            .env(EMBEDDED_PYTHON_PROXY_ENV, EMBEDDED_PYTHON_PROXY_SOURCE)
-            .env("KEDI_PYTHON_COMPLETION_SOURCE", PYTHON_COMPLETION_SOURCE)
-            .env("KEDI_PYTHON_VIRTUALIZER_COMMAND", python.command)
-            .env("KEDI_PYTHON_VIRTUALIZER_ARGS", virtualizer_args)
-            .args([
-                "--input-type=module".to_string(),
-                "--eval".to_string(),
-                EMBEDDED_PYTHON_PROXY_LOADER.to_string(),
-                pyright_entrypoint,
-            ]);
-
-        if let Some(env) = env {
-            command = command.envs(env);
-        }
-
-        Ok(command)
+        Ok(embedded_python_proxy_command(
+            node,
+            &proxy_path,
+            &pyright_entrypoint,
+            &python.command,
+            &virtualizer_args,
+            shell_env,
+            env.unwrap_or_default(),
+        ))
     }
 }
 
@@ -315,6 +365,68 @@ impl zed::Extension for KediExtension {
 zed::register_extension!(KediExtension);
 
 #[cfg(test)]
+mod proxy_launch_tests {
+    use super::{
+        embedded_python_proxy_command, write_proxy_scripts, EMBEDDED_PYTHON_PROXY_SOURCE,
+        PYTHON_COMPLETION_SOURCE,
+    };
+    use std::path::Path;
+
+    #[test]
+    fn proxy_runs_by_path_with_no_environment_value_over_the_windows_limit() {
+        // The base commit passed server.mjs through the environment, over
+        // the Windows 32,767-character per-variable limit.
+        assert!(EMBEDDED_PYTHON_PROXY_SOURCE.len() > 32_767);
+        let command = embedded_python_proxy_command(
+            "/usr/bin/node".into(),
+            Path::new("/ext/embedded-python-proxy/server.mjs"),
+            "/ext/node_modules/pyright/langserver.index.js",
+            "/ext/editor-venv/bin/python",
+            "[\"-I\", \"-c\", \"main_loop()\"]",
+            vec![("HOME".into(), "/home/user".into())],
+            vec![],
+        );
+        assert_eq!(command.command, "/usr/bin/node");
+        assert_eq!(
+            command.args,
+            [
+                "/ext/embedded-python-proxy/server.mjs",
+                "/ext/node_modules/pyright/langserver.index.js",
+            ]
+        );
+        assert!(!command.args.iter().any(|arg| arg == "--eval"));
+        for (name, value) in &command.env {
+            assert!(value.len() < 32_000, "{name} is {} chars", value.len());
+            assert!(!value.contains(EMBEDDED_PYTHON_PROXY_SOURCE));
+            assert!(!value.contains(PYTHON_COMPLETION_SOURCE));
+        }
+        assert!(!command
+            .env
+            .iter()
+            .any(|(name, _)| name == "KEDI_EMBEDDED_PYTHON_PROXY_SOURCE"
+                || name == "KEDI_PYTHON_COMPLETION_SOURCE"));
+    }
+
+    #[test]
+    fn proxy_scripts_are_written_to_disk() {
+        let root = std::env::temp_dir().join(format!("kedi-zed-proxy-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let path = write_proxy_scripts(&root).unwrap();
+        assert_eq!(path, root.join("embedded-python-proxy").join("server.mjs"));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            EMBEDDED_PYTHON_PROXY_SOURCE
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("embedded-python-proxy").join("completion.mjs"))
+                .unwrap(),
+            PYTHON_COMPLETION_SOURCE
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
 mod pyright_tests {
     use super::ensure_pyright_package;
 
@@ -392,5 +504,30 @@ mod pyright_tests {
         )
         .unwrap_err();
         assert_eq!(error, "Certificate verification failed");
+    }
+}
+
+#[cfg(test)]
+mod binary_path_tests {
+    use super::kedi_lsp_binary_args;
+
+    #[test]
+    fn python_interpreter_path_runs_the_server_module() {
+        assert_eq!(
+            kedi_lsp_binary_args("/usr/bin/python3", vec!["--port".into(), "9000".into()]),
+            ["-m", "kedi.lsp.server", "--port", "9000"]
+        );
+        assert_eq!(
+            kedi_lsp_binary_args("C:\\venv\\Scripts\\python.EXE", vec![]),
+            ["-m", "kedi.lsp.server"]
+        );
+    }
+
+    #[test]
+    fn non_python_server_binary_runs_as_is() {
+        assert_eq!(
+            kedi_lsp_binary_args("/usr/local/bin/kedi-lsp", vec!["--port".into()]),
+            ["--port"]
+        );
     }
 }

@@ -35,16 +35,24 @@ At first language-server activation, the extension automatically prepares
 `~/.kedi/editor-venv`. This is the same environment and installation lock used
 by the Kedi VS Code extension, not a second Zed-specific environment. No host
 Python installation is needed: a checksum-verified uv 0.11.21 downloads Python
-3.12 and installs `kedi==0.1.4`, `tree-sitter-kedi==0.4.6`,
+3.12 and installs `kedi==0.1.4`, `tree-sitter-kedi==0.4.9`,
 `kedi-debugger==0.1.0`, and their dependencies.
 An absolute `KEDI_HOME` overrides `~/.kedi`. Subsequent starts validate and reuse
 the existing environment without reinstalling; interrupted setups can be retried.
 
 Resolution order:
 
-1. Explicit `lsp.kedi-lsp.binary.path` (advanced override).
+1. Explicit `lsp.kedi-lsp.binary.path` (advanced override): the server
+   command itself. When it names a Python interpreter, `-m kedi.lsp.server`
+   (plus the configured arguments) is appended; any other executable runs
+   as-is.
 2. Explicit `lsp.kedi-lsp.settings.python_path` (host Python).
 3. The shared managed environment.
+
+The same order decides the interpreter for the language helpers and the
+debugger, except that a `binary.path` naming a non-Python executable (with
+no Python shebang) falls back to the managed environment there instead of
+failing: the helpers and the debugger always need a Python interpreter.
 
 Host environments must already have Kedi installed. They are never modified.
 The extension does not silently pick a workspace executable or Python on PATH.
@@ -142,7 +150,11 @@ A run button appears in the gutter beside the first item of a `.kedi` file and b
 
 `--test` and `--eval` run every block in the file. The tasks run in Zed's terminal from the
 worktree root. They use `kedi` from the terminal's `PATH`, such as an activated project
-environment, and fall back to the shared managed environment. To change a command, add a task
+environment, and fall back to the shared managed environment (run with `-I`, so a
+user-installed Python or `PYTHONPATH` cannot shadow it). On Windows, use the
+` (Windows)` variants (`kedi: run <file> (Windows)` etc.), which run the same fallback
+through PowerShell; Zed has no per-OS task override, so both sets are listed on every
+platform. To change a command, add a task
 with the same tag (`kedi-file`, `kedi-test` or `kedi-eval`) to `.zed/tasks.json`.
 
 ## Debugging
@@ -269,7 +281,7 @@ stack, step, continue, and stop. The fixture performs no provider calls.
 The explicit `RUSTC` lets Clippy use rustup's compiler directly instead of the
 repository's compiler-selection shell wrapper.
 
-The pinned `kedi==0.1.4`, `tree-sitter-kedi==0.4.6`, and `kedi-debugger==0.1.0`
+The pinned `kedi==0.1.4`, `tree-sitter-kedi==0.4.9`, and `kedi-debugger==0.1.0`
 packages must be available from PyPI before this extension is released. Verify
 that the Kedi wheel contains the required debugger hooks, not only its version.
 If that Kedi version was published without them, publish a new version and
