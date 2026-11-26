@@ -105,6 +105,12 @@
 (package_dependency
   value: (package_dependency_value) @text.literal)
 
+(package_adapters
+  "adapters" @property)
+
+(package_adapter
+  name: (identifier) @namespace)
+
 (module_import
   module: (module_path) @namespace)
 
