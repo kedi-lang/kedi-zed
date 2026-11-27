@@ -63,7 +63,7 @@ test('highlights.scm covers hooks directives and type literals', () => {
 test('bootstrap and README pin the compatible published runtime', () => {
   const bootstrap = readFileSync(new URL('../runtime/bootstrap.cjs', import.meta.url), 'utf8');
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  for (const spec of ['kedi==0.1.7', 'tree-sitter-kedi==0.4.11', 'kedi-debugger==0.1.2']) {
+  for (const spec of ['kedi==0.1.8', 'tree-sitter-kedi==0.4.11', 'kedi-debugger==0.1.2']) {
     assert.ok(bootstrap.includes(spec), `bootstrap missing ${spec}`);
     assert.ok(readme.includes(spec), `README missing ${spec}`);
   }

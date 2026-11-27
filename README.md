@@ -25,7 +25,7 @@ language for LLM programs: write, run, test and debug `.kedi` files in Zed.
 1. Open **Zed > Extensions**, search for `Kedi` and install it.
 2. Open a `.kedi` file. On the first language-server start, the extension
    prepares a Python environment under `~/.kedi/editor-venv`. A
-   checksum-verified uv downloads Python 3.12 and installs `kedi==0.1.7`,
+   checksum-verified uv downloads Python 3.12 and installs `kedi==0.1.8`,
    `tree-sitter-kedi==0.4.11` and `kedi-debugger==0.1.2`. No existing Python is
    needed. This needs internet access once; later starts reuse the environment.
 3. Set your model provider's API key, for example in a `.env` file, and run the
